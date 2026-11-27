@@ -110,6 +110,8 @@ go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest
 [releases page](https://github.com/mateusclira/claude-gc/releases/latest).
 A Homebrew tap is on the way.
 
+Already installed? See [Upgrading](#upgrading).
+
 ## Quick start
 
 ```sh
@@ -252,26 +254,38 @@ a pass that came due while the computer slept.
 
 ## Upgrading
 
-Install the new version the way you installed the first one, check that it
-is the one on your `PATH`, then reinstall the service if you use it:
+Run the installer again. It says which version you had, which one you have
+now, and what else to do, if anything:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | sh
-# or: go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest
-
-claude-gc version             # should print the new version
-claude-gc service install     # restarts the daemon on the new binary
 ```
 
-The last step matters. Replacing the binary does not touch a daemon that is
-already running: it keeps running the old version, and when it next restarts
-it uses the flags the old version wrote into its unit file. Coming from 0.1.x,
-that means a pass every 30 minutes instead of once a day.
+```
+Updated claude-gc from v0.3.0 to v0.3.1 at ~/.local/bin/claude-gc
+```
 
-`service install` rewrites the unit file and restarts the daemon. It does not
-read your old settings, so pass any flags you changed again, for example
-`claude-gc service install -life 7d`. The daemon remembers its last pass, so
-reinstalling it does not cause an extra one.
+If you installed with Go, run
+`go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest` instead.
+Either way you get the newest
+[release](https://github.com/mateusclira/claude-gc/releases), not
+unreleased changes on `main`.
+
+Two things can make an upgrade look like it did nothing. The installer warns
+about both:
+
+- **Another copy runs first.** If you installed claude-gc more than one way,
+  the copy earliest on your `PATH` is the one that runs. `which -a claude-gc`
+  lists them all. Keep one and delete the others.
+- **The background service keeps the old version.** Replacing the binary does
+  not restart a running daemon. Run `claude-gc service install` again, with
+  any flags you changed, such as `-life 7d`. It restarts the daemon on the new
+  version without causing an extra pass. Coming from 0.1.x, skipping this
+  leaves the daemon running every 30 minutes instead of once a day.
+
+`claude-gc version` shows what you are running. Release builds name their
+commit; a copy built with `go install` says `go install` instead, because Go
+does not record a commit for those.
 
 ## Scripting
 
