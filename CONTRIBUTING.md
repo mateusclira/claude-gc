@@ -79,13 +79,21 @@ the pull request and CI will cover the other.
   and pull request titles: `feat:`, `fix:`, `docs:`, `ci:`, `chore:`,
   `refactor:`, `test:`. The release notes are generated from them.
 
+`main` is protected, for maintainers too: every change lands through a pull
+request whose CI checks pass, and pull requests are squash-merged with their
+title as the commit message. That title is what appears in the release notes,
+so it is the one that has to follow Conventional Commits.
+
 ## Releasing (maintainers)
 
-Releases are built by GitHub Actions with GoReleaser when a tag is pushed:
+Releases are built by GitHub Actions with GoReleaser when a tag is pushed.
+Open a pull request that moves the **Unreleased** section of the changelog
+under the new version, merge it, then tag the merge commit:
 
 ```sh
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
+git switch main && git pull
+git tag -a v0.4.0 -m "v0.4.0"
+git push origin v0.4.0
 ```
 
 That produces the GitHub release with binaries and checksums for macOS and
@@ -96,5 +104,11 @@ updated automatically when the `HOMEBREW_TAP_GITHUB_TOKEN` repository secret
 otherwise that step is skipped and the cask can be updated by hand from the
 `checksums.txt` release asset.
 
-Before tagging, move the **Unreleased** section of the changelog under the
-new version.
+Release tags cannot be moved or deleted once pushed. The Go module proxy
+caches a version the first time anyone fetches it, so a moved tag would break
+`go install` for everyone who already has the old one. If a release goes
+wrong, fix it in the next patch version.
+
+The repository rules live under **Settings → Rules → Rulesets**. The checks
+that `main` requires are matched by CI job name, so a pull request that
+renames a job in `.github/workflows/ci.yml` must also update the ruleset.

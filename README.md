@@ -170,7 +170,7 @@ claude-gc kills processes, so it is deliberately conservative:
   SIGKILL is a last resort after the grace period.
 - **It never deletes transcripts.** Nothing under `~/.claude/projects` is
   touched. Claude Code prunes old transcripts itself; see
-  [`cleanupPeriodDays`](https://docs.anthropic.com/en/docs/claude-code/settings).
+  [`cleanupPeriodDays`](https://code.claude.com/docs/en/settings).
 - **`status` and `run -dry-run` never change anything**, so you can always
   look before you leap.
 
