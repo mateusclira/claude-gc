@@ -8,6 +8,8 @@ on:
 permissions:
   contents: read
 
+# The job names below are the required status checks of the "Protect main"
+# ruleset. Renaming a job means updating the ruleset in the same change.
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -35,7 +37,8 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # Pinned so a new linter release cannot fail every open pull request.
+          version: v2.15.0
 
   shellcheck:
     name: Shellcheck
