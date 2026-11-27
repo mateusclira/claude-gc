@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -100,5 +101,38 @@ func TestRenderSystemd(t *testing.T) {
 func TestUnsupported(t *testing.T) {
 	if _, err := newFor("windows"); err == nil {
 		t.Error("expected error for windows")
+	}
+}
+
+func TestRuns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	binary := filepath.Join(home, "My Tools & Bins", "claude-gc")
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			m, err := newFor(goos)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if Runs(m, binary) {
+				t.Error("Runs before any unit exists")
+			}
+			body, err := Render(goos, Config{Binary: binary, Interval: time.Hour, MaxIdle: time.Hour})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writeFile(m.UnitPath(), body); err != nil {
+				t.Fatal(err)
+			}
+			if !Runs(m, binary) {
+				t.Errorf("Runs(%q) = false for unit:\n%s", binary, body)
+			}
+			for _, other := range []string{filepath.Join(home, "My Tools & Bins"), binary + "-old", "/usr/local/bin/claude-gc", ""} {
+				if Runs(m, other) {
+					t.Errorf("Runs(%q) = true", other)
+				}
+			}
+		})
 	}
 }

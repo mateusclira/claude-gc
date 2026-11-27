@@ -72,6 +72,13 @@ func (s *systemd) Uninstall() error {
 	return nil
 }
 
+func (s *systemd) Restart() error {
+	if out, err := run("systemctl", "--user", "restart", SystemdUnit); err != nil {
+		return fmt.Errorf("systemctl --user restart failed: %w\n%s", err, out)
+	}
+	return nil
+}
+
 func (s *systemd) Status() (Status, error) {
 	st := Status{UnitPath: s.UnitPath(), LogHint: s.LogHint(), Installed: exists(s.UnitPath())}
 	out, err := run("systemctl", "--user", "show", SystemdUnit, "--property=ActiveState", "--property=MainPID")

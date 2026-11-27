@@ -24,8 +24,9 @@ otherwise.
 
 In scope: anything that leads claude-gc to signal a process that is not an
 abandoned Claude Code session, to remove files it should not, to run with
-more privilege than the invoking user, or to be influenced by data it reads
-from disk in a way that is not intended.
+more privilege than the invoking user, to be influenced by data it reads
+from disk in a way that is not intended, or to have `claude-gc upgrade`
+install anything other than a published release.
 
 Out of scope: the behaviour of Claude Code or the VS Code extension
 themselves.

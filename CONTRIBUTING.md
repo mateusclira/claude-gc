@@ -37,6 +37,7 @@ internal/claude/      where Claude Code keeps its state and how to read it
 internal/proc/        process table via ps(1), identity checks, signalling
 internal/service/     launchd and systemd units and their lifecycle
 internal/humanize/    durations and sizes, parsed and formatted for people
+internal/upgrade/     the upgrade command: download, verify and replace the binary
 scripts/install.sh    curl-pipe-sh installer for release binaries
 ```
 
