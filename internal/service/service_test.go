@@ -10,7 +10,8 @@ import (
 
 var testConfig = Config{
 	Binary:      "/opt/homebrew/bin/claude-gc",
-	Interval:    30 * time.Minute,
+	Interval:    24 * time.Hour,
+	MinUptime:   24 * time.Hour,
 	MaxIdle:     3 * humanize.Day,
 	Entrypoints: []string{"claude-vscode"},
 	Grace:       5 * time.Second,
@@ -18,7 +19,7 @@ var testConfig = Config{
 
 func TestArgv(t *testing.T) {
 	got := strings.Join(testConfig.Argv(), " ")
-	want := "/opt/homebrew/bin/claude-gc daemon --interval 30m --max-idle 3d --grace 5s --entrypoints claude-vscode"
+	want := "/opt/homebrew/bin/claude-gc daemon -fq 24h -life 3d -min-uptime 24h -grace 5s -entrypoints claude-vscode"
 	if got != want {
 		t.Errorf("Argv = %q\nwant  %q", got, want)
 	}
@@ -26,8 +27,12 @@ func TestArgv(t *testing.T) {
 	cfg.ConfigDir = "/home/me/claude"
 	cfg.Verbose = true
 	cfg.Entrypoints = []string{"claude-vscode", "cli"}
+	cfg.MinUptime = 0
 	got = strings.Join(cfg.Argv(), " ")
-	if !strings.HasSuffix(got, "--entrypoints claude-vscode,cli --config-dir /home/me/claude --verbose") {
+	if !strings.Contains(got, "-min-uptime 0s") {
+		t.Errorf("disabled uptime rule must be explicit: %q", got)
+	}
+	if !strings.HasSuffix(got, "-entrypoints claude-vscode,cli -config-dir /home/me/claude -verbose") {
 		t.Errorf("Argv = %q", got)
 	}
 }
@@ -45,7 +50,7 @@ func TestRenderLaunchd(t *testing.T) {
 		"<string>" + LaunchdLabel + "</string>",
 		"<string>/Users/me/My Tools &amp; Bins/claude-gc</string>",
 		"<string>daemon</string>",
-		"<string>--max-idle</string>",
+		"<string>-life</string>",
 		"<string>3d</string>",
 		"<key>KeepAlive</key>",
 		"<string>/Users/me/Library/Logs/claude-gc/claude-gc.log</string>",
@@ -69,7 +74,7 @@ func TestRenderSystemd(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(body)
-	want := `ExecStart="/home/me/bin with \"quotes\"/claude-gc" "daemon" "--interval" "30m" "--max-idle" "3d" "--grace" "5s" "--entrypoints" "claude-vscode"`
+	want := `ExecStart="/home/me/bin with \"quotes\"/claude-gc" "daemon" "-fq" "24h" "-life" "3d" "-min-uptime" "24h" "-grace" "5s" "-entrypoints" "claude-vscode"`
 	if !strings.Contains(s, want) {
 		t.Errorf("unit missing %q:\n%s", want, s)
 	}

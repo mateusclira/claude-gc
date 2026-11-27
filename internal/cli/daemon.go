@@ -5,25 +5,30 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
 
-	"github.com/mateusclira/claude-gc/internal/humanize"
+	"github.com/mateusclira/claude-gc/internal/daemon"
 	"github.com/mateusclira/claude-gc/internal/reaper"
 )
 
 const daemonHelp = `Usage: claude-gc daemon [flags]
 
-Runs in the foreground and reaps abandoned sessions on every interval. This is
-what the background service runs. Logs go to stderr. SIGHUP triggers a pass
-immediately; SIGINT or SIGTERM stop the daemon.
+Runs in the foreground and reaps abandoned sessions on a schedule. This is
+what the background service runs.
+
+By default it runs a pass once a day, and only once the computer has been up
+for 24 hours. A restart ends every Claude Code session, so right after one
+there is nothing to collect. Time asleep counts as uptime, and a pass that
+comes due while the computer sleeps runs a few minutes after it wakes. The
+daemon remembers its last pass, so restarting it does not cause an extra one.
+
+Logs go to stderr. SIGHUP runs a pass now; SIGINT or SIGTERM stop the daemon.
 `
 
-func (a *app) daemon(args []string) int {
+func (a *app) runDaemon(args []string) int {
 	var sf scanFlags
 	fs := a.flagSet("daemon", &sf, daemonHelp)
-	fs.Var(&sf.interval, "interval", "time between passes")
+	sf.addScheduleFlags(fs)
 	if ok, code := a.parseFlags(fs, &sf, args); !ok {
 		return code
 	}
@@ -32,12 +37,17 @@ func (a *app) daemon(args []string) int {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
+
+	statePath, err := daemon.StatePath()
+	if err != nil {
+		log.Warn("the schedule will not survive restarts", "error", err)
+	}
 	log.Info("claude-gc daemon starting",
 		"version", a.build.Version,
-		"interval", humanize.FormatDuration(sf.interval.d),
-		"max_idle", humanize.FormatDuration(sf.maxIdle.d),
-		"entrypoints", strings.Join(sf.entrypointList(), ","),
-		"config_dir", sf.configDir)
+		"schedule", sf.policy().Describe(),
+		"reaps", sf.reaps(),
+		"config_dir", sf.configDir,
+		"state", statePath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -45,44 +55,39 @@ func (a *app) daemon(args []string) int {
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
 
-	pass := func() {
-		rep, err := reaper.Scan(sf.scanOptions())
-		if err != nil {
-			log.Error("scan failed", "error", err)
-			return
-		}
-		for _, p := range rep.Problems {
-			log.Warn("problem reading session state", "error", p)
-		}
-		res := reaper.Apply(rep, reaper.ApplyOptions{Grace: sf.grace.d, Log: log})
-		for _, e := range res.Errors {
-			log.Warn("reap problem", "error", e)
-		}
-		if len(res.Reaped) > 0 || len(res.Removed) > 0 {
-			log.Info("pass complete",
-				"sessions", len(rep.Sessions),
-				"reaped", len(res.Reaped),
-				"freed", humanize.KB(res.FreedKB),
-				"forced", res.Forced,
-				"removed_files", len(res.Removed))
-			return
-		}
-		log.Debug("nothing to reap", "sessions", len(rep.Sessions), "max_idle", humanize.FormatDuration(rep.MaxIdle))
+	err = daemon.Run(ctx, daemon.Options{
+		Policy:    sf.policy(),
+		ConfigDir: sf.configDir,
+		Reaps:     sf.reaps(),
+		StatePath: statePath,
+		Log:       log,
+		Trigger:   hup,
+		Pass: func() (daemon.Pass, error) {
+			rep, err := reaper.Scan(sf.scanOptions())
+			if err != nil {
+				return daemon.Pass{}, err
+			}
+			for _, p := range rep.Problems {
+				log.Warn("problem reading session state", "error", p)
+			}
+			res := reaper.Apply(rep, reaper.ApplyOptions{Grace: sf.grace.d, Log: log})
+			for _, e := range res.Errors {
+				log.Warn("reap problem", "error", e)
+			}
+			return daemon.Pass{
+				Sessions: len(rep.Sessions),
+				Reaped:   len(res.Reaped),
+				FreedKB:  res.FreedKB,
+				Forced:   res.Forced,
+				Removed:  len(res.Removed),
+				Errors:   len(res.Errors),
+			}, nil
+		},
+	})
+	if err != nil {
+		log.Error("daemon failed", "error", err)
+		return 1
 	}
-
-	pass()
-	ticker := time.NewTicker(sf.interval.d)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("claude-gc daemon stopping")
-			return 0
-		case <-hup:
-			log.Info("received SIGHUP, running a pass now")
-			pass()
-		case <-ticker.C:
-			pass()
-		}
-	}
+	log.Info("claude-gc daemon stopping")
+	return 0
 }

@@ -21,9 +21,9 @@ make lint           # golangci-lint run
 ./bin/claude-gc status
 ```
 
-`claude-gc status` and `claude-gc run --dry-run` never change anything, so
+`claude-gc status` and `claude-gc run -dry-run` never change anything, so
 they are safe to run against your real Claude Code state while developing.
-When you want to exercise the real thing, point `--config-dir` at a scratch
+When you want to exercise the real thing, point `-config-dir` at a scratch
 directory with hand-made session records instead of your own.
 
 ## Project layout
@@ -32,6 +32,7 @@ directory with hand-made session records instead of your own.
 cmd/claude-gc/        main package; only wires build info into the CLI
 internal/cli/         commands, flags, human and JSON output
 internal/reaper/      the decision rules (Scan) and the actions (Apply)
+internal/daemon/      the schedule (once a day, after a day of uptime) and its state file
 internal/claude/      where Claude Code keeps its state and how to read it
 internal/proc/        process table via ps(1), identity checks, signalling
 internal/service/     launchd and systemd units and their lifecycle
@@ -44,7 +45,7 @@ them:
 
 1. **`Scan` is read-only and `Apply` is the only thing that acts.** Every
    decision is made from a snapshot and recorded with a reason, so `status`,
-   `run --dry-run` and the daemon always agree.
+   `run -dry-run` and the daemon always agree.
 2. **A process is only ever signalled after its identity has been verified**
    against the session record (command line and start time), and never when
    it is an ancestor of the current process.
@@ -56,6 +57,12 @@ directory, so the interesting cases (recycled PIDs, missing transcripts, the
 current session, unknown entrypoints) run everywhere without touching real
 processes. A couple of tests spawn a `sleep` child and reap it through the
 real `ps` and `kill` to cover the live path.
+
+The daemon's schedule is tested against a simulated clock, so days of
+operation, a laptop sleeping overnight, reboots and daemon restarts run in
+milliseconds. Anything that depends on time should be written the same way:
+take the clock as a parameter and compare wall-clock times, never monotonic
+ones, because monotonic time stops while the computer sleeps.
 
 CI runs the suite on macOS and Linux. If you only have one of them, say so in
 the pull request and CI will cover the other.

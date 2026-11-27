@@ -7,7 +7,7 @@ import (
 	"github.com/mateusclira/claude-gc/internal/reaper"
 )
 
-// The JSON shapes printed by --json. They are part of the public interface,
+// The JSON shapes printed by -json. They are part of the public interface,
 // so fields are only ever added.
 
 type sessionJSON struct {

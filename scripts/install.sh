@@ -72,5 +72,5 @@ esac
 say ""
 say "Next steps:"
 say "  claude-gc status            # see what is running"
-say "  claude-gc run --dry-run     # preview a pass"
+say "  claude-gc run -dry-run      # preview a pass"
 say "  claude-gc service install   # keep it tidy automatically"

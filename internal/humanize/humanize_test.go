@@ -19,6 +19,8 @@ func TestParseDuration(t *testing.T) {
 		{"45s", 45 * time.Second, true},
 		{"1h30m", 90 * time.Minute, true},
 		{" 2d ", 48 * time.Hour, true},
+		{"0", 0, true},
+		{"0s", 0, true},
 		{"", 0, false},
 		{"3", 0, false},
 		{"d", 0, false},
@@ -100,7 +102,9 @@ func TestPlural(t *testing.T) {
 func TestFormatDuration(t *testing.T) {
 	cases := map[time.Duration]string{
 		3 * Day:                             "3d",
-		36 * time.Hour:                      "1d12h",
+		2 * Day:                             "2d",
+		24 * time.Hour:                      "24h",
+		36 * time.Hour:                      "36h",
 		30 * time.Minute:                    "30m",
 		5 * time.Second:                     "5s",
 		90 * time.Second:                    "1m30s",
@@ -120,5 +124,37 @@ func TestFormatDuration(t *testing.T) {
 				t.Errorf("round trip %q: %v %v", got, back, err)
 			}
 		}
+	}
+}
+
+func TestSpan(t *testing.T) {
+	cases := map[time.Duration]string{
+		time.Hour:        "1 hour",
+		24 * time.Hour:   "24 hours",
+		48 * time.Hour:   "48 hours",
+		72 * time.Hour:   "3d",
+		90 * time.Minute: "1h 30m",
+		30 * time.Minute: "30m",
+	}
+	for in, want := range cases {
+		if got := Span(in); got != want {
+			t.Errorf("Span(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestUntil(t *testing.T) {
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	if got := Until(now.Add(21*time.Hour+58*time.Minute), now); got != "in 21h 58m" {
+		t.Errorf("Until = %q", got)
+	}
+	if got := Until(now.Add(10*time.Second), now); got != "now" {
+		t.Errorf("Until(soon) = %q", got)
+	}
+	if got := Until(now.Add(-time.Hour), now); got != "now" {
+		t.Errorf("Until(past) = %q", got)
+	}
+	if got := Until(time.Time{}, now); got != "unknown" {
+		t.Errorf("Until(zero) = %q", got)
 	}
 }

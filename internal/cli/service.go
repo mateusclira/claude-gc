@@ -4,13 +4,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/mateusclira/claude-gc/internal/daemon"
 	"github.com/mateusclira/claude-gc/internal/humanize"
+	"github.com/mateusclira/claude-gc/internal/proc"
 	"github.com/mateusclira/claude-gc/internal/service"
 )
 
@@ -20,13 +22,24 @@ Commands:
   install     Install and start the background service
               (a launchd agent on macOS, a systemd user unit on Linux)
   uninstall   Stop the daemon and remove the service
-  status      Show whether the service is installed and running
+  status      Show the schedule, the last pass and the next one
   logs        Show recent daemon logs (-f to follow)
 
-install accepts the shared flags (--max-idle, --entrypoints, --grace,
---config-dir, --verbose) plus:
-  --interval <dur>   Time between passes (default 30m)
-  --binary <path>    claude-gc executable to run (default: this one)
+By default the daemon runs a pass once a day, and only once the computer has
+been up for 24 hours: a restart ends every Claude Code session, so right
+after one there is nothing to collect.
+
+install takes the daemon's flags:
+  -fq <dur>            How often to run a pass (default 24h)
+  -life <dur>          How long a session may stay unused before it is
+                       reaped (default 3d)
+  -min-uptime <dur>    Skip passes until the computer has been up this long
+                       (default 24h, or -life if shorter; 0 disables)
+  -entrypoints, -grace, -config-dir and -verbose, as for every command
+  -binary <path>       claude-gc executable to run (default: this one)
+
+Run install again with new flags to change the settings, for example:
+  claude-gc service install -fq 2h -life 3d
 `
 
 func (a *app) service(args []string) int {
@@ -64,8 +77,8 @@ func (a *app) serviceInstall(mgr service.Manager, args []string) int {
 	var sf scanFlags
 	var binary string
 	fs := a.flagSet("service install", &sf, serviceHelp)
-	fs.Var(&sf.interval, "interval", "time between passes")
-	fs.StringVar(&binary, "binary", "", "claude-gc executable to run (default: this one)")
+	sf.addScheduleFlags(fs)
+	fs.StringVar(&binary, "binary", "", "claude-gc `executable` to run (default: this one)")
 	if ok, code := a.parseFlags(fs, &sf, args); !ok {
 		return code
 	}
@@ -73,12 +86,13 @@ func (a *app) serviceInstall(mgr service.Manager, args []string) int {
 		binary, _ = resolveBinary()
 	}
 	if binary == "" {
-		return a.fail(errors.New("could not determine the path of this executable; pass --binary"))
+		return a.fail(errors.New("could not determine the path of this executable; pass -binary"))
 	}
 	cfg := service.Config{
 		Binary:      binary,
-		Interval:    sf.interval.d,
-		MaxIdle:     sf.maxIdle.d,
+		Interval:    sf.fq.d,
+		MinUptime:   sf.minUptime.d,
+		MaxIdle:     sf.life.d,
 		Entrypoints: sf.entrypointList(),
 		Grace:       sf.grace.d,
 		Verbose:     sf.verbose,
@@ -94,13 +108,25 @@ func (a *app) serviceInstall(mgr service.Manager, args []string) int {
 	}
 	fmt.Fprintf(a.stdout, "Installed %s\n", shortenHome(mgr.UnitPath()))
 	st := waitRunning(mgr, 5*time.Second)
-	if st.Running {
-		fmt.Fprintf(a.stdout, "claude-gc daemon is running (pid %d). Every %s it reaps %s sessions idle for longer than %s.\n",
-			st.PID, humanize.Duration(cfg.Interval), strings.Join(cfg.Entrypoints, ","), humanize.Duration(cfg.MaxIdle))
-	} else {
-		fmt.Fprintln(a.stdout, "The service is installed but not running yet. Check `claude-gc service status` and the logs.")
+
+	// Show what the new daemon will do, worked out the way it works it out:
+	// from its policy and the last pass it finds in the state file.
+	planned := daemon.State{
+		Reaps:            sf.reaps(),
+		IntervalSeconds:  int64(cfg.Interval / time.Second),
+		MinUptimeSeconds: int64(cfg.MinUptime / time.Second),
 	}
-	fmt.Fprintf(a.stdout, "Logs: %s\n", shortenHome(mgr.LogHint()))
+	if prev, err := loadDaemonState(); err == nil && prev.ConfigDir == sf.configDir {
+		planned.LastPass, planned.LastError = prev.LastPass, prev.LastError
+	}
+	rows := [][2]string{serviceRow(st)}
+	boot, bootErr := proc.BootTime()
+	rows = append(rows, scheduleRows(planned, st.Running, wallNow(), boot, bootErr)...)
+	rows = append(rows, [2]string{"Logs", shortenHome(mgr.LogHint())})
+	printRows(a.stdout, rows)
+	if !st.Running {
+		fmt.Fprintln(a.stdout, "The daemon is not running yet. Check `claude-gc service logs`.")
+	}
 	for _, n := range notes {
 		fmt.Fprintf(a.stdout, "Note: %s\n", n)
 	}
@@ -128,16 +154,22 @@ func (a *app) serviceStatus(mgr service.Manager, args []string) int {
 	if err != nil {
 		return a.fail(err)
 	}
-	switch {
-	case !st.Installed:
+	if !st.Installed {
 		fmt.Fprintln(a.stdout, "Service: not installed. Run `claude-gc service install` to set it up.")
 		return 1
-	case st.Running:
-		fmt.Fprintf(a.stdout, "Service: installed and running (pid %d)\n", st.PID)
-	default:
-		fmt.Fprintln(a.stdout, "Service: installed but not running")
 	}
-	fmt.Fprintf(a.stdout, "Unit:    %s\nLogs:    %s\n", shortenHome(st.UnitPath), shortenHome(st.LogHint))
+	rows := [][2]string{serviceRow(st)}
+	state, err := loadDaemonState()
+	if err != nil {
+		rows = append(rows, [2]string{"State", "unreadable: " + err.Error()})
+	} else {
+		boot, bootErr := proc.BootTime()
+		rows = append(rows, scheduleRows(state, st.Running, wallNow(), boot, bootErr)...)
+	}
+	rows = append(rows,
+		[2]string{"Unit", shortenHome(st.UnitPath)},
+		[2]string{"Logs", shortenHome(st.LogHint)})
+	printRows(a.stdout, rows)
 	if !st.Running {
 		return 1
 	}
@@ -159,6 +191,85 @@ func (a *app) serviceLogs(mgr service.Manager, args []string) int {
 	}
 	return 0
 }
+
+func serviceRow(st service.Status) [2]string {
+	if st.Running {
+		return [2]string{"Service", fmt.Sprintf("running (pid %d)", st.PID)}
+	}
+	return [2]string{"Service", "installed but not running"}
+}
+
+// scheduleRows describes the daemon's schedule and its last and next passes.
+func scheduleRows(state daemon.State, running bool, now, boot time.Time, bootErr error) [][2]string {
+	var rows [][2]string
+	policy := state.Policy()
+	if policy.Interval > 0 {
+		rows = append(rows, [2]string{"Schedule", policy.Describe()})
+	}
+	if state.Reaps != "" {
+		rows = append(rows, [2]string{"Reaps", state.Reaps})
+	}
+	if bootErr == nil {
+		rows = append(rows, [2]string{"Uptime", humanize.Duration(now.Sub(boot))})
+	}
+	rows = append(rows, [2]string{"Last pass", lastPassText(state.LastPass, now, boot, bootErr)})
+	if f := state.FailedSinceLastPass(); f != nil {
+		rows = append(rows, [2]string{"Last error", humanize.Ago(f.At, now) + ": " + f.Error})
+	}
+	if running && policy.Interval > 0 && bootErr == nil {
+		rows = append(rows, [2]string{"Next pass", nextPassText(state, now, boot)})
+	}
+	return rows
+}
+
+func lastPassText(p *daemon.Pass, now, boot time.Time, bootErr error) string {
+	if p == nil {
+		return "none yet"
+	}
+	s := humanize.Ago(p.At, now)
+	if p.Reaped == 0 {
+		s += ", nothing to reap"
+	} else {
+		s += fmt.Sprintf(", reaped %s and freed %s", humanize.Plural(p.Reaped, "session"), humanize.KB(p.FreedKB))
+	}
+	if p.Errors > 0 {
+		s += fmt.Sprintf(", %s (see the logs)", humanize.Plural(p.Errors, "error"))
+	}
+	if bootErr == nil && p.At.Before(boot) {
+		s += ", before the last restart"
+	}
+	return s
+}
+
+func nextPassText(state daemon.State, now, boot time.Time) string {
+	next := state.Next(now, boot)
+	if !now.Before(next) {
+		return "now"
+	}
+	s := fmt.Sprintf("%s (%s)", humanize.Until(next, now), next.Local().Format("Mon Jan 2 15:04"))
+	if p := state.Policy(); p.WaitingForUptime(boot, next) {
+		s += ", once uptime reaches " + humanize.Span(p.MinUptime)
+	}
+	return s
+}
+
+func printRows(w io.Writer, rows [][2]string) {
+	for _, r := range rows {
+		fmt.Fprintf(w, "%-11s %s\n", r[0]+":", r[1])
+	}
+}
+
+func loadDaemonState() (daemon.State, error) {
+	path, err := daemon.StatePath()
+	if err != nil {
+		return daemon.State{}, err
+	}
+	return daemon.LoadState(path)
+}
+
+// wallNow is the current wall-clock time without a monotonic reading, the
+// form every schedule computation uses.
+func wallNow() time.Time { return time.Now().Round(0) }
 
 func waitRunning(mgr service.Manager, timeout time.Duration) service.Status {
 	deadline := time.Now().Add(timeout)

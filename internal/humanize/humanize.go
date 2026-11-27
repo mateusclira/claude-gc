@@ -13,11 +13,15 @@ import (
 const Day = 24 * time.Hour
 
 // ParseDuration parses durations such as "3d", "36h", "1d12h", "90m" or "45s".
-// It accepts every unit time.ParseDuration accepts, plus "d" for days.
+// It accepts every unit time.ParseDuration accepts, plus "d" for days, and a
+// bare "0".
 func ParseDuration(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, errors.New("empty duration")
+	}
+	if s == "0" {
+		return 0, nil
 	}
 	var total time.Duration
 	rest := s
@@ -83,6 +87,27 @@ func Duration(d time.Duration) string {
 	}
 }
 
+// Span renders a stretch of time in words when it is a whole number of hours
+// up to two days ("24 hours", "1 hour") and compactly otherwise ("3d", "30m").
+func Span(d time.Duration) string {
+	if d > 0 && d%time.Hour == 0 && d <= 2*Day {
+		return Plural(int(d/time.Hour), "hour")
+	}
+	return Duration(d)
+}
+
+// Until renders how long until t: "in 21h 58m" or "now".
+func Until(t, now time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := t.Sub(now)
+	if d < 30*time.Second {
+		return "now"
+	}
+	return "in " + Duration(d)
+}
+
 // Ago renders how long before now t happened: "2h 5m ago" or "just now".
 func Ago(t, now time.Time) string {
 	if t.IsZero() {
@@ -125,7 +150,8 @@ func Plural(n int, word string) string {
 }
 
 // FormatDuration renders d in the compact form ParseDuration accepts:
-// "3d", "1d12h", "30m", "5s".
+// "3d", "2d12h", "24h", "36h", "30m", "5s". Days are used from two days up,
+// so a day reads the way people say it: "24h".
 func FormatDuration(d time.Duration) string {
 	if d <= 0 {
 		return "0s"
@@ -133,14 +159,19 @@ func FormatDuration(d time.Duration) string {
 	if d < time.Second {
 		return d.String()
 	}
-	var b strings.Builder
-	for _, part := range []struct {
-		unit time.Duration
+	type unit struct {
+		size time.Duration
 		name string
-	}{{Day, "d"}, {time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}} {
-		if n := d / part.unit; n > 0 {
+	}
+	units := []unit{{time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}}
+	if d >= 2*Day {
+		units = append([]unit{{Day, "d"}}, units...)
+	}
+	var b strings.Builder
+	for _, part := range units {
+		if n := d / part.size; n > 0 {
 			fmt.Fprintf(&b, "%d%s", n, part.name)
-			d -= n * part.unit
+			d -= n * part.size
 		}
 	}
 	return b.String()

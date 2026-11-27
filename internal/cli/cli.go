@@ -48,7 +48,7 @@ func (a *app) run(args []string) int {
 	case "run":
 		return a.runOnce(rest)
 	case "daemon":
-		return a.daemon(rest)
+		return a.runDaemon(rest)
 	case "service":
 		return a.service(rest)
 	case "version", "--version", "-v":
@@ -70,27 +70,42 @@ Usage:
 
 Commands:
   status     Show every Claude Code session and what would happen to it
-  run        Reap abandoned sessions once (--dry-run to preview)
-  daemon     Run continuously, reaping on an interval
+  run        Reap abandoned sessions once, right now (-dry-run to preview)
+  daemon     Run continuously, reaping once a day
   service    Install, inspect or remove the background service
   version    Print version information
 
-Flags shared by status, run and daemon:
-  --max-idle <dur>      Reap sessions idle for longer than this (default 3d)
-  --entrypoints <list>  Session entrypoints to reap, comma-separated
-                        (default claude-vscode; "*" for all)
-  --grace <dur>         Wait this long after SIGTERM before SIGKILL (default 5s)
-  --config-dir <path>   Claude Code config directory
-                        (default $CLAUDE_CONFIG_DIR or ~/.claude)
-  --json                Machine-readable output (status and run)
-  --verbose             Debug logging
+Main flags:
+  -life <dur>          How long a session may stay unused before it is
+                       reaped (default 3d)
+  -fq <dur>            How often the daemon runs a pass (default 24h);
+                       daemon and service install only
+
+Other flags:
+  -min-uptime <dur>    Skip passes until the computer has been up this long
+                       (default 24h, or -life if shorter; 0 disables);
+                       daemon and service install only
+  -entrypoints <list>  Session entrypoints to reap, comma-separated
+                       (default claude-vscode; "*" for all)
+  -grace <dur>         Wait this long after SIGTERM before SIGKILL (default 5s)
+  -config-dir <path>   Claude Code config directory
+                       (default $CLAUDE_CONFIG_DIR or ~/.claude)
+  -json                Machine-readable output (status and run)
+  -verbose             Debug logging
+
+Durations use d, h, m and s, such as 3d, 24h, 2h, 30m or 1d12h, and 0.
+Flags take one dash or two: -fq 2h, --fq 2h and -fq=2h are the same.
 
 Environment:
-  CLAUDE_GC_MAX_IDLE, CLAUDE_GC_INTERVAL, CLAUDE_GC_ENTRYPOINTS,
+  CLAUDE_GC_LIFE, CLAUDE_GC_FQ, CLAUDE_GC_MIN_UPTIME, CLAUDE_GC_ENTRYPOINTS,
   CLAUDE_GC_GRACE and CLAUDE_CONFIG_DIR set defaults for the flags above.
 
-Durations accept d, h, m and s, for example 3d, 36h, 1d12h or 30m.
-Run "claude-gc <command> --help" for the flags of one command.
+Examples:
+  claude-gc status -life 2h                  what would a 2-hour life reap?
+  claude-gc run -dry-run                     preview a pass
+  claude-gc service install -fq 2h -life 3d  run every 2 hours, 3-day life
+
+Run "claude-gc <command> -h" for the flags of one command.
 `
 
 func (a *app) version() {
