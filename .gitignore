@@ -1,0 +1,15 @@
+# Build output
+/bin/
+/dist/
+/claude-gc
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.html
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

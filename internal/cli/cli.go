@@ -1,0 +1,178 @@
+// Package cli implements the claude-gc command line.
+package cli
+
+import (
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"runtime"
+	"strings"
+)
+
+// BuildInfo is stamped into the binary at build time.
+type BuildInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
+
+type app struct {
+	stdout io.Writer
+	stderr io.Writer
+	build  BuildInfo
+	color  bool
+	tty    bool
+}
+
+// Main runs the command line and returns the process exit code.
+func Main(args []string, build BuildInfo) int {
+	a := &app{stdout: os.Stdout, stderr: os.Stderr, build: build}
+	a.tty = isTerminal(os.Stdout)
+	a.color = a.tty && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+	return a.run(args)
+}
+
+func (a *app) run(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprint(a.stderr, usageText)
+		return 2
+	}
+	cmd, rest := args[0], args[1:]
+	switch cmd {
+	case "status":
+		return a.status(rest)
+	case "run":
+		return a.runOnce(rest)
+	case "daemon":
+		return a.daemon(rest)
+	case "service":
+		return a.service(rest)
+	case "version", "--version", "-v":
+		a.version()
+		return 0
+	case "help", "--help", "-h":
+		fmt.Fprint(a.stdout, usageText)
+		return 0
+	default:
+		fmt.Fprintf(a.stderr, "claude-gc: unknown command %q\n\n%s", cmd, usageText)
+		return 2
+	}
+}
+
+const usageText = `claude-gc reaps abandoned Claude Code sessions.
+
+Usage:
+  claude-gc <command> [flags]
+
+Commands:
+  status     Show every Claude Code session and what would happen to it
+  run        Reap abandoned sessions once (--dry-run to preview)
+  daemon     Run continuously, reaping on an interval
+  service    Install, inspect or remove the background service
+  version    Print version information
+
+Flags shared by status, run and daemon:
+  --max-idle <dur>      Reap sessions idle for longer than this (default 3d)
+  --entrypoints <list>  Session entrypoints to reap, comma-separated
+                        (default claude-vscode; "*" for all)
+  --grace <dur>         Wait this long after SIGTERM before SIGKILL (default 5s)
+  --config-dir <path>   Claude Code config directory
+                        (default $CLAUDE_CONFIG_DIR or ~/.claude)
+  --json                Machine-readable output (status and run)
+  --verbose             Debug logging
+
+Environment:
+  CLAUDE_GC_MAX_IDLE, CLAUDE_GC_INTERVAL, CLAUDE_GC_ENTRYPOINTS,
+  CLAUDE_GC_GRACE and CLAUDE_CONFIG_DIR set defaults for the flags above.
+
+Durations accept d, h, m and s, for example 3d, 36h, 1d12h or 30m.
+Run "claude-gc <command> --help" for the flags of one command.
+`
+
+func (a *app) version() {
+	v := a.build.Version
+	if v != "dev" && !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	fmt.Fprintf(a.stdout, "claude-gc %s (commit %s, built %s, %s %s/%s)\n",
+		v, a.build.Commit, a.build.Date, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
+// fail reports an error and returns the exit code for it.
+func (a *app) fail(err error) int {
+	fmt.Fprintf(a.stderr, "claude-gc: %v\n", err)
+	return 1
+}
+
+// parseFlags parses args into fs and resolves environment defaults. ok is
+// false when the caller should return code immediately.
+func (a *app) parseFlags(fs *flag.FlagSet, sf *scanFlags, args []string) (ok bool, code int) {
+	err := fs.Parse(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return false, 0
+	}
+	if err != nil {
+		return false, 2 // the flag package already reported it
+	}
+	if err := sf.resolve(fs); err != nil {
+		fmt.Fprintf(a.stderr, "claude-gc: %v\n", err)
+		return false, 2
+	}
+	return true, 0
+}
+
+func (a *app) printJSON(v any) int {
+	enc := json.NewEncoder(a.stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return a.fail(err)
+	}
+	return 0
+}
+
+func (a *app) warnProblems(problems []error) {
+	for _, p := range problems {
+		fmt.Fprintf(a.stderr, "claude-gc: warning: %v\n", p)
+	}
+}
+
+// logger returns a structured logger writing to stderr. Without verbose it
+// only reports warnings, so command output stays clean.
+func (a *app) logger(verbose bool) *slog.Logger {
+	level := slog.LevelWarn
+	if verbose {
+		level = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
+}
+
+func (a *app) paint(code, s string) string {
+	if !a.color {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// shortenHome replaces the home directory prefix of p with "~".
+func shortenHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}

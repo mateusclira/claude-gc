@@ -1,0 +1,101 @@
+# GoReleaser configuration: https://goreleaser.com
+version: 2
+
+project_name: claude-gc
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: claude-gc
+    main: ./cmd/claude-gc
+    binary: claude-gc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^style:"
+
+release:
+  github:
+    owner: mateusclira
+    name: claude-gc
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    ```sh
+    brew install mateusclira/tap/claude-gc
+    # or
+    go install github.com/mateusclira/claude-gc/cmd/claude-gc@{{ .Tag }}
+    # or
+    curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | VERSION={{ .Tag }} sh
+    ```
+
+# Homebrew tap (macOS). GoReleaser deprecated formula generation for
+# pre-built binaries in favour of casks; Homebrew on Linux has no casks, so
+# Linux users install with `go install` or scripts/install.sh.
+homebrew_casks:
+  - name: claude-gc
+    repository:
+      owner: mateusclira
+      name: homebrew-tap
+      branch: main
+      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
+    directory: Casks
+    commit_author:
+      name: goreleaser
+      email: bot@goreleaser.com
+    commit_msg_template: "chore: update {{ .ProjectName }} to {{ .Tag }}"
+    homepage: https://github.com/mateusclira/claude-gc
+    description: Garbage collector for abandoned Claude Code sessions
+    # Publishing needs a token with write access to the tap; without one the
+    # cask is still rendered into dist/ but not pushed.
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
+    binaries:
+      - claude-gc
+    caveats: |
+      Run `claude-gc status` to see your sessions and
+      `claude-gc service install` to start the background service.

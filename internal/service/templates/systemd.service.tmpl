@@ -1,0 +1,15 @@
+[Unit]
+Description=claude-gc: reaps abandoned Claude Code sessions
+Documentation=https://github.com/mateusclira/claude-gc
+After=default.target
+
+[Service]
+Type=simple
+ExecStart={{range $i, $a := .Argv}}{{if $i}} {{end}}{{quote $a}}{{end}}
+Restart=always
+RestartSec=10
+Nice=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

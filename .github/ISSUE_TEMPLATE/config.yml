@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/mateusclira/claude-gc/discussions
+    about: Ask a question or discuss an idea before it becomes an issue.
+  - name: Security report
+    url: https://github.com/mateusclira/claude-gc/security/advisories/new
+    about: Report a vulnerability privately.

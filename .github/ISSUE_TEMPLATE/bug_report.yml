@@ -1,0 +1,60 @@
+name: Bug report
+description: claude-gc did something wrong or failed to do something
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If claude-gc reaped a session it should not have, please say so clearly: that is the most important kind of bug.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `claude-gc status`
+      description: Paste the table, or `claude-gc status --json` if that is easier. Remove project names if you prefer.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: claude-gc version
+      description: Output of `claude-gc version`
+      placeholder: claude-gc v0.1.0 (commit abc1234, built 2026-11-27, go1.24 darwin/arm64)
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`, and whether sessions come from the VS Code extension, a terminal, or elsewhere
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Other (say which below)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install claude-gc?
+      options:
+        - Homebrew
+        - go install
+        - install script
+        - release binary
+        - built from source
+  - type: textarea
+    id: logs
+    attributes:
+      label: Daemon logs
+      description: If the service is involved, the relevant lines from `claude-gc service logs`.
+      render: text
