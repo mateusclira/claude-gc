@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-27
+
 ### Added
 
 - `claude-gc upgrade` replaces claude-gc with the latest release. It checks
@@ -103,7 +105,8 @@ First release.
   support, an install script, and a GoReleaser cask definition for a
   Homebrew tap.
 
-[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mateusclira/claude-gc/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/mateusclira/claude-gc/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mateusclira/claude-gc/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...v0.2.0
