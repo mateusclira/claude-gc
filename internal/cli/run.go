@@ -10,9 +10,10 @@ import (
 
 const runHelp = `Usage: claude-gc run [flags]
 
-Reaps abandoned sessions once: sends SIGTERM to each eligible session, waits
-for the grace period, then SIGKILL, and removes the files it left behind.
-Use --dry-run to see what would happen without changing anything.
+Reaps abandoned sessions once, right now, whatever the daemon's schedule
+says: sends SIGTERM to each eligible session, waits for the grace period,
+then SIGKILL, and removes the files it left behind. Use --dry-run to see what
+would happen without changing anything.
 `
 
 func (a *app) runOnce(args []string) int {

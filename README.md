@@ -5,8 +5,8 @@
 **A garbage collector for Claude Code sessions.**
 
 Finds the `claude` processes that the VS Code extension spawns and forgets,
-reaps the ones you stopped using days ago, and keeps doing it quietly in the
-background. macOS and Linux. One static binary, no dependencies.
+reaps the ones you stopped using days ago, and keeps doing it once a day in
+the background. macOS and Linux. One static binary, no dependencies.
 
 [![CI](https://github.com/mateusclira/claude-gc/actions/workflows/ci.yml/badge.svg)](https://github.com/mateusclira/claude-gc/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/mateusclira/claude-gc?display_name=tag&sort=semver)](https://github.com/mateusclira/claude-gc/releases/latest)
@@ -50,7 +50,7 @@ of them were actually in use.
 
 ## What it does
 
-On every pass (every 30 minutes by default) claude-gc:
+Each pass, claude-gc:
 
 1. **Reads Claude Code's own session registry.** Claude Code writes one record
    per running session to `~/.claude/sessions/<pid>.json`, naming its process,
@@ -67,6 +67,28 @@ On every pass (every 30 minutes by default) claude-gc:
 Reaped sessions stay resumable. The transcript is never touched, so the
 conversation still shows up in Claude Code's history and `claude --resume`
 works as before.
+
+## When it runs
+
+The background service runs one pass a day, and only once the computer has
+been up for a full day:
+
+| Time since the last restart | What happens |
+| --- | --- |
+| Less than 24 hours | Nothing. A restart ends every Claude Code process, so there is nothing to collect yet. |
+| 24 hours | The first pass. |
+| Every 24 hours after that | Another pass, for as long as the computer stays up. |
+
+- **Sleep counts as uptime.** Only a restart resets the clock. A laptop that
+  sleeps overnight still gets its daily pass, a few minutes after it wakes.
+- **Restarting the daemon does not cause an extra pass.** It remembers its
+  last pass, so logging out and back in leaves the schedule alone.
+- **Installing on a computer that has been up for more than a day runs a
+  pass right away**, then one every 24 hours.
+- **`claude-gc run` ignores the schedule.** It always runs, right now.
+
+Both numbers are configurable: `--interval` sets the time between passes and
+`--min-uptime` the uptime to wait for, with `0` turning that rule off.
 
 ## Install
 
@@ -101,8 +123,13 @@ macOS, a systemd user unit on Linux. It starts right away and on every login.
 ```
 $ claude-gc service install
 Installed ~/Library/LaunchAgents/io.github.mateusclira.claude-gc.plist
-claude-gc daemon is running (pid 51234). Every 30m it reaps claude-vscode sessions idle for longer than 3d.
-Logs: ~/Library/Logs/claude-gc/claude-gc.log
+Service:    running (pid 51234)
+Schedule:   once a day, after 24 hours of uptime
+Reaps:      claude-vscode sessions idle for longer than 3d
+Uptime:     82d 3h
+Last pass:  none yet
+Next pass:  now
+Logs:       ~/Library/Logs/claude-gc/claude-gc.log
 ```
 
 ## How it decides
@@ -140,12 +167,13 @@ claude-gc kills processes, so it is deliberately conservative:
 ## Configuration
 
 Every tunable is a flag, with an environment variable as fallback. Durations
-accept `d`, `h`, `m` and `s`: `3d`, `36h`, `1d12h`, `30m`.
+accept `d`, `h`, `m` and `s`, such as `3d`, `24h`, `1d12h` or `30m`, and `0`.
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
 | `--max-idle` | `CLAUDE_GC_MAX_IDLE` | `3d` | Reap sessions idle for longer than this |
-| `--interval` | `CLAUDE_GC_INTERVAL` | `30m` | Time between passes (`daemon`, `service install`) |
+| `--interval` | `CLAUDE_GC_INTERVAL` | `24h` | Time between passes (`daemon`, `service install`) |
+| `--min-uptime` | `CLAUDE_GC_MIN_UPTIME` | `24h` | No pass until the computer has been up this long; `0` disables (`daemon`, `service install`) |
 | `--entrypoints` | `CLAUDE_GC_ENTRYPOINTS` | `claude-vscode` | Comma-separated entrypoints to reap; `*` for all |
 | `--grace` | `CLAUDE_GC_GRACE` | `5s` | Wait after SIGTERM before SIGKILL |
 | `--config-dir` | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code keeps its state |
@@ -155,9 +183,10 @@ accept `d`, `h`, `m` and `s`: `3d`, `36h`, `1d12h`, `30m`.
 Examples:
 
 ```sh
-claude-gc status --max-idle 1d                      # tighter threshold, just looking
-claude-gc run --entrypoints 'claude-vscode,cli'     # also reap idle terminal sessions
-claude-gc service install --max-idle 7d --interval 1h
+claude-gc status --max-idle 1d                            # tighter threshold, just looking
+claude-gc run --entrypoints 'claude-vscode,cli'           # also reap idle terminal sessions
+claude-gc service install --max-idle 7d                   # only sessions idle for a week
+claude-gc service install --interval 12h --min-uptime 0   # twice a day, even right after a restart
 ```
 
 To change the settings of an installed service, run `service install` again
@@ -170,19 +199,37 @@ with the new flags.
 | Manager | launchd (per-user agent) | systemd (`--user` unit) |
 | Unit file | `~/Library/LaunchAgents/io.github.mateusclira.claude-gc.plist` | `~/.config/systemd/user/claude-gc.service` |
 | Logs | `~/Library/Logs/claude-gc/claude-gc.log` | `journalctl --user -u claude-gc` |
+| State | `~/Library/Application Support/claude-gc/state.json` | `~/.local/state/claude-gc/state.json` |
 
 ```sh
-claude-gc service status      # installed? running?
+claude-gc service status      # running? when was the last pass, when is the next?
 claude-gc service logs -f     # follow the log
 claude-gc service uninstall   # stop and remove
 ```
 
+`service status` reads the schedule back from the daemon. Here, a computer
+restarted three hours ago:
+
+```
+$ claude-gc service status
+Service:    running (pid 812)
+Schedule:   once a day, after 24 hours of uptime
+Reaps:      claude-vscode sessions idle for longer than 3d
+Uptime:     3h 12m
+Last pass:  2d 6h ago, reaped 4 sessions and freed 912 MB, before the last restart
+Next pass:  in 20h 48m (Sat Nov 28 09:49), once uptime reaches 24 hours
+Unit:       ~/Library/LaunchAgents/io.github.mateusclira.claude-gc.plist
+Logs:       ~/Library/Logs/claude-gc/claude-gc.log
+```
+
 On Linux, user services stop at logout unless lingering is enabled:
 `loginctl enable-linger $USER`. Systems without systemd can run
-`claude-gc daemon` under any supervisor, or `claude-gc run` from cron.
+`claude-gc daemon` under any supervisor, or `claude-gc run` from a daily cron
+job.
 
-The daemon itself is a single Go process that sleeps between passes; it uses
-a few megabytes of memory and no CPU while idle.
+The daemon is a single Go process using about 7 MB of memory. Between passes
+it wakes every few minutes only to look at the clock, which is how it notices
+a pass that came due while the computer slept.
 
 ## Scripting
 
@@ -207,6 +254,17 @@ history. Reaping only ends the idle process.
 **Why three days?**
 It is the gap between "I stepped away for the weekend" and "I forgot this
 existed". Tune it with `--max-idle`.
+
+**Why once a day?**
+Sessions become eligible after three idle days, so a daily pass reaps each
+one within a day of that, and the daemon stays out of the way the rest of the
+time. Use `--interval` to run more often.
+
+**Why does nothing happen right after a restart?**
+There is nothing to collect. A restart ends every Claude Code process, and no
+session started since then can have been idle for three days. The daemon
+waits a full day of uptime before its first pass. `--min-uptime 0` turns this
+off.
 
 **What about sessions started from a terminal?**
 Skipped by default, because a terminal tab is something you chose to keep

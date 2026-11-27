@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mateusclira/claude-gc/internal/daemon"
 )
 
 func newTestApp() (*app, *bytes.Buffer, *bytes.Buffer) {
@@ -47,8 +50,11 @@ func TestFlagValidation(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"zero max-idle", []string{"status", "--max-idle", "0s"}, nil, "--max-idle must be greater than zero"},
-		{"unitless max-idle", []string{"status", "--max-idle", "0"}, nil, "missing unit"},
+		{"zero max-idle", []string{"status", "--max-idle", "0"}, nil, "--max-idle must be greater than zero"},
+		{"unitless max-idle", []string{"status", "--max-idle", "3"}, nil, "missing unit"},
+		{"bad min-uptime", []string{"daemon", "--min-uptime", "-1h"}, nil, `invalid value "-1h"`},
+		{"bad min-uptime env", []string{"daemon"}, map[string]string{"CLAUDE_GC_MIN_UPTIME": "a while"}, "CLAUDE_GC_MIN_UPTIME"},
+		{"interval flag on status", []string{"status", "--interval", "1h"}, nil, "flag provided but not defined: -interval"},
 		{"bad max-idle", []string{"status", "--max-idle", "soon"}, nil, `invalid value "soon"`},
 		{"bad env", []string{"status"}, map[string]string{"CLAUDE_GC_MAX_IDLE": "never"}, "CLAUDE_GC_MAX_IDLE"},
 		{"empty entrypoints", []string{"status", "--entrypoints", " , "}, nil, "--entrypoints must name"},
@@ -76,17 +82,19 @@ func TestEnvDefaults(t *testing.T) {
 	t.Setenv("CLAUDE_GC_ENTRYPOINTS", "claude-vscode, cli")
 	t.Setenv("CLAUDE_GC_GRACE", "9s")
 	t.Setenv("CLAUDE_GC_INTERVAL", "2h")
+	t.Setenv("CLAUDE_GC_MIN_UPTIME", "0")
 	a, _, _ := newTestApp()
 	var sf scanFlags
 	fs := a.flagSet("test", &sf, "")
+	sf.addScheduleFlags(fs)
 	if err := fs.Parse([]string{"--grace", "1s"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sf.resolve(fs); err != nil {
 		t.Fatal(err)
 	}
-	if got := sf.maxIdle.String(); got != "1d" {
-		t.Errorf("max-idle from env = %q", got)
+	if sf.maxIdle.d != 24*time.Hour {
+		t.Errorf("max-idle from env = %v, want 24h", sf.maxIdle.d)
 	}
 	if got := strings.Join(sf.entrypointList(), "|"); got != "claude-vscode|cli" {
 		t.Errorf("entrypoints from env = %q", got)
@@ -96,6 +104,114 @@ func TestEnvDefaults(t *testing.T) {
 	}
 	if got := sf.interval.String(); got != "2h" {
 		t.Errorf("interval from env = %q", got)
+	}
+	if sf.minUptime.d != 0 {
+		t.Errorf("min-uptime from env = %v, want 0 (disabled)", sf.minUptime.d)
+	}
+	if got := sf.policy().Describe(); got != "every 2 hours" {
+		t.Errorf("policy = %q", got)
+	}
+}
+
+func TestScheduleDefaults(t *testing.T) {
+	a, _, _ := newTestApp()
+	var sf scanFlags
+	fs := a.flagSet("test", &sf, "")
+	sf.addScheduleFlags(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sf.resolve(fs); err != nil {
+		t.Fatal(err)
+	}
+	if got := sf.policy().Describe(); got != "once a day, after 24 hours of uptime" {
+		t.Errorf("default policy = %q", got)
+	}
+	if got := sf.reaps(); got != "claude-vscode sessions idle for longer than 3d" {
+		t.Errorf("reaps = %q", got)
+	}
+	sf.entrypoints = "claude-vscode,*"
+	if got := sf.reaps(); got != "all sessions idle for longer than 3d" {
+		t.Errorf("reaps with wildcard = %q", got)
+	}
+}
+
+func TestScheduleEnvIgnoredByStatus(t *testing.T) {
+	// status and run have no schedule, so a schedule setting meant for the
+	// daemon must not break them.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_GC_INTERVAL", "5s")
+	t.Setenv("CLAUDE_GC_MIN_UPTIME", "never")
+	a, _, errb := newTestApp()
+	if code := a.run([]string{"status"}); code != 0 {
+		t.Errorf("status: code=%d stderr=%s", code, errb.String())
+	}
+}
+
+func TestScheduleRows(t *testing.T) {
+	day := 24 * time.Hour
+	now := time.Date(2026, 11, 27, 15, 0, 0, 0, time.UTC)
+	longBoot := now.Add(-82*day - 3*time.Hour)
+	state := daemon.State{
+		Reaps:            "claude-vscode sessions idle for longer than 3d",
+		IntervalSeconds:  86400,
+		MinUptimeSeconds: 86400,
+	}
+	text := func(rows [][2]string) string {
+		var b strings.Builder
+		printRows(&b, rows)
+		return b.String()
+	}
+
+	// Freshly installed on a computer that has been up for weeks.
+	got := text(scheduleRows(state, true, now, longBoot, nil))
+	for _, want := range []string{
+		"Schedule:   once a day, after 24 hours of uptime\n",
+		"Reaps:      claude-vscode sessions idle for longer than 3d\n",
+		"Uptime:     82d 3h\n",
+		"Last pass:  none yet\n",
+		"Next pass:  now\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fresh install output missing %q:\n%s", want, got)
+		}
+	}
+
+	// Ran two hours ago.
+	state.LastPass = &daemon.Pass{At: now.Add(-2 * time.Hour), Sessions: 42, Reaped: 38, FreedKB: 7932080}
+	got = text(scheduleRows(state, true, now, longBoot, nil))
+	for _, want := range []string{
+		"Last pass:  2h ago, reaped 38 sessions and freed 7.6 GB\n",
+		"Next pass:  in 22h (",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("after a pass, output missing %q:\n%s", want, got)
+		}
+	}
+
+	// Restarted three hours ago; the last pass was before the restart.
+	state.LastPass = &daemon.Pass{At: now.Add(-3 * day), Reaped: 0}
+	boot := now.Add(-3 * time.Hour)
+	got = text(scheduleRows(state, true, now, boot, nil))
+	for _, want := range []string{
+		"Uptime:     3h\n",
+		"Last pass:  3d ago, nothing to reap, before the last restart\n",
+		"Next pass:  in 21h (",
+		"), once uptime reaches 24 hours\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("after a restart, output missing %q:\n%s", want, got)
+		}
+	}
+
+	// A failed pass is reported, and a stopped daemon has no next pass.
+	state.LastError = &daemon.Failure{At: now.Add(-time.Hour), Error: "listing processes: ps failed"}
+	got = text(scheduleRows(state, false, now, boot, nil))
+	if !strings.Contains(got, "Last error: 1h ago: listing processes: ps failed\n") {
+		t.Errorf("missing last error:\n%s", got)
+	}
+	if strings.Contains(got, "Next pass") {
+		t.Errorf("stopped daemon must not show a next pass:\n%s", got)
 	}
 }
 

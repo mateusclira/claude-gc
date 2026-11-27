@@ -48,7 +48,7 @@ func (a *app) run(args []string) int {
 	case "run":
 		return a.runOnce(rest)
 	case "daemon":
-		return a.daemon(rest)
+		return a.runDaemon(rest)
 	case "service":
 		return a.service(rest)
 	case "version", "--version", "-v":
@@ -70,12 +70,12 @@ Usage:
 
 Commands:
   status     Show every Claude Code session and what would happen to it
-  run        Reap abandoned sessions once (--dry-run to preview)
-  daemon     Run continuously, reaping on an interval
+  run        Reap abandoned sessions once, right now (--dry-run to preview)
+  daemon     Run continuously, reaping once a day
   service    Install, inspect or remove the background service
   version    Print version information
 
-Flags shared by status, run and daemon:
+Flags shared by status, run, daemon and service install:
   --max-idle <dur>      Reap sessions idle for longer than this (default 3d)
   --entrypoints <list>  Session entrypoints to reap, comma-separated
                         (default claude-vscode; "*" for all)
@@ -85,9 +85,16 @@ Flags shared by status, run and daemon:
   --json                Machine-readable output (status and run)
   --verbose             Debug logging
 
+Schedule flags for daemon and service install:
+  --interval <dur>      Time between passes (default 24h)
+  --min-uptime <dur>    Hold passes back until the computer has been up this
+                        long, since a restart ends every session anyway
+                        (default 24h; 0 disables)
+
 Environment:
-  CLAUDE_GC_MAX_IDLE, CLAUDE_GC_INTERVAL, CLAUDE_GC_ENTRYPOINTS,
-  CLAUDE_GC_GRACE and CLAUDE_CONFIG_DIR set defaults for the flags above.
+  CLAUDE_GC_MAX_IDLE, CLAUDE_GC_INTERVAL, CLAUDE_GC_MIN_UPTIME,
+  CLAUDE_GC_ENTRYPOINTS, CLAUDE_GC_GRACE and CLAUDE_CONFIG_DIR set defaults
+  for the flags above.
 
 Durations accept d, h, m and s, for example 3d, 36h, 1d12h or 30m.
 Run "claude-gc <command> --help" for the flags of one command.

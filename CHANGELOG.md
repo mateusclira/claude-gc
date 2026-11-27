@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
+### Changed
+
+- The daemon runs once a day instead of every 30 minutes: `--interval` now
+  defaults to `24h`.
+- The daemon does nothing until the computer has been up for 24 hours. A
+  restart ends every Claude Code session, so there is nothing to collect
+  right after one. Set with `--min-uptime` or `CLAUDE_GC_MIN_UPTIME`; `0`
+  turns the rule off.
+- The schedule follows the wall clock, so time asleep counts. A pass that
+  comes due while the computer sleeps runs a few minutes after it wakes.
+
+### Added
+
+- The daemon keeps its schedule in a state file, so restarting it, or
+  logging out and back in, does not cause an extra pass.
+- `claude-gc service status` and `service install` show the schedule,
+  uptime, the last pass and when the next one is due.
+- Durations accept a bare `0`.
+
+### Upgrading
+
+Services installed by 0.1.x have `--interval 30m` written into their unit
+file. After upgrading the binary, run `claude-gc service install` again to
+switch to the new schedule.
+
 ## [0.1.1] - 2026-11-27
 
 ### Fixed
@@ -35,6 +62,7 @@ First release.
   support, an install script, and a GoReleaser cask definition for a
   Homebrew tap.
 
-[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mateusclira/claude-gc/releases/tag/v0.1.0

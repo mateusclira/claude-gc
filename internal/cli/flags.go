@@ -9,18 +9,19 @@ import (
 	"time"
 
 	"github.com/mateusclira/claude-gc/internal/claude"
+	"github.com/mateusclira/claude-gc/internal/daemon"
 	"github.com/mateusclira/claude-gc/internal/humanize"
 	"github.com/mateusclira/claude-gc/internal/reaper"
 )
 
-// Defaults for the tunables.
+// Defaults for the reaping tunables. The schedule defaults live in the
+// daemon package.
 const (
-	DefaultMaxIdle  = 3 * humanize.Day
-	DefaultGrace    = 5 * time.Second
-	DefaultInterval = 30 * time.Minute
+	DefaultMaxIdle = 3 * humanize.Day
+	DefaultGrace   = 5 * time.Second
 )
 
-// durationFlag is a flag.Value accepting "3d", "36h", "30m" and so on.
+// durationFlag is a flag.Value accepting "3d", "24h", "30m", "0" and so on.
 type durationFlag struct{ d time.Duration }
 
 func (f *durationFlag) String() string { return humanize.FormatDuration(f.d) }
@@ -34,11 +35,13 @@ func (f *durationFlag) Set(s string) error {
 	return nil
 }
 
-// scanFlags are the flags shared by status, run and daemon.
+// scanFlags are the flags shared by status, run, daemon and service install.
 type scanFlags struct {
 	maxIdle     durationFlag
 	grace       durationFlag
 	interval    durationFlag
+	minUptime   durationFlag
+	scheduled   bool // the command takes --interval and --min-uptime
 	entrypoints string
 	configDir   string
 	verbose     bool
@@ -51,7 +54,8 @@ func (a *app) flagSet(name string, sf *scanFlags, help string) *flag.FlagSet {
 	fs.SetOutput(a.stderr)
 	sf.maxIdle.d = DefaultMaxIdle
 	sf.grace.d = DefaultGrace
-	sf.interval.d = DefaultInterval
+	sf.interval.d = daemon.DefaultInterval
+	sf.minUptime.d = daemon.DefaultMinUptime
 	sf.entrypoints = strings.Join(reaper.DefaultEntrypoints, ",")
 	fs.Var(&sf.maxIdle, "max-idle", "reap sessions idle for longer than this")
 	fs.Var(&sf.grace, "grace", "wait this long after SIGTERM before SIGKILL")
@@ -66,6 +70,14 @@ func (a *app) flagSet(name string, sf *scanFlags, help string) *flag.FlagSet {
 	return fs
 }
 
+// addScheduleFlags registers --interval and --min-uptime for the commands
+// that run on a schedule.
+func (sf *scanFlags) addScheduleFlags(fs *flag.FlagSet) {
+	sf.scheduled = true
+	fs.Var(&sf.interval, "interval", "time between passes")
+	fs.Var(&sf.minUptime, "min-uptime", "hold passes back until the computer has been up this long (0 disables)")
+}
+
 // resolve fills flags that were not given on the command line from the
 // environment and validates the result.
 func (sf *scanFlags) resolve(fs *flag.FlagSet) error {
@@ -74,19 +86,20 @@ func (sf *scanFlags) resolve(fs *flag.FlagSet) error {
 	}
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	if !given["max-idle"] {
-		if err := envDuration("CLAUDE_GC_MAX_IDLE", &sf.maxIdle); err != nil {
-			return err
-		}
-	}
-	if !given["grace"] {
-		if err := envDuration("CLAUDE_GC_GRACE", &sf.grace); err != nil {
-			return err
-		}
-	}
-	if !given["interval"] {
-		if err := envDuration("CLAUDE_GC_INTERVAL", &sf.interval); err != nil {
-			return err
+	for _, env := range []struct {
+		flag, name string
+		value      *durationFlag
+		applies    bool
+	}{
+		{"max-idle", "CLAUDE_GC_MAX_IDLE", &sf.maxIdle, true},
+		{"grace", "CLAUDE_GC_GRACE", &sf.grace, true},
+		{"interval", "CLAUDE_GC_INTERVAL", &sf.interval, sf.scheduled},
+		{"min-uptime", "CLAUDE_GC_MIN_UPTIME", &sf.minUptime, sf.scheduled},
+	} {
+		if env.applies && !given[env.flag] {
+			if err := envDuration(env.name, env.value); err != nil {
+				return err
+			}
 		}
 	}
 	if !given["entrypoints"] {
@@ -100,7 +113,7 @@ func (sf *scanFlags) resolve(fs *flag.FlagSet) error {
 	if sf.grace.d < 0 {
 		return errors.New("--grace must not be negative")
 	}
-	if sf.interval.d < time.Minute {
+	if sf.scheduled && sf.interval.d < time.Minute {
 		return errors.New("--interval must be at least 1m")
 	}
 	if len(sf.entrypointList()) == 0 {
@@ -139,4 +152,21 @@ func (sf *scanFlags) scanOptions() reaper.Options {
 		MaxIdle:     sf.maxIdle.d,
 		Entrypoints: sf.entrypointList(),
 	}
+}
+
+func (sf *scanFlags) policy() daemon.Policy {
+	return daemon.Policy{Interval: sf.interval.d, MinUptime: sf.minUptime.d}
+}
+
+// reaps describes what a pass reaps: "claude-vscode sessions idle for longer
+// than 3d".
+func (sf *scanFlags) reaps() string {
+	entrypoints := sf.entrypointList()
+	kind := strings.Join(entrypoints, ", ")
+	for _, e := range entrypoints {
+		if e == "*" {
+			kind = "all"
+		}
+	}
+	return fmt.Sprintf("%s sessions idle for longer than %s", kind, humanize.Duration(sf.maxIdle.d))
 }

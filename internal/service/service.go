@@ -35,6 +35,7 @@ type Config struct {
 	Binary      string
 	ConfigDir   string // passed as --config-dir when set
 	Interval    time.Duration
+	MinUptime   time.Duration
 	MaxIdle     time.Duration
 	Entrypoints []string
 	Grace       time.Duration
@@ -45,6 +46,7 @@ type Config struct {
 func (c Config) Argv() []string {
 	argv := []string{c.Binary, "daemon",
 		"--interval", humanize.FormatDuration(c.Interval),
+		"--min-uptime", humanize.FormatDuration(c.MinUptime),
 		"--max-idle", humanize.FormatDuration(c.MaxIdle),
 		"--grace", humanize.FormatDuration(c.Grace),
 	}
