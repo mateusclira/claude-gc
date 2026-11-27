@@ -21,7 +21,7 @@ the background. macOS and Linux. One static binary, no dependencies.
 ## The problem
 
 Every Claude Code chat tab in VS Code starts a `claude` process. Closing the
-tab does not stop it. In practice the extension host keeps those children
+tab does not stop it. In practice, the extension host keeps those children
 alive until VS Code itself quits, so a machine that stays up for weeks
 accumulates dozens of idle sessions, each holding 150 to 300 MB of memory and
 polling in the background.
