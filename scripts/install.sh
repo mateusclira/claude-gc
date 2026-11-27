@@ -61,16 +61,68 @@ fi
 [ "$expected" = "$actual" ] || die "checksum mismatch for $asset"
 
 tar -xzf "$tmp/$asset" -C "$tmp" claude-gc
-mkdir -p "$INSTALL_DIR"
-install -m 0755 "$tmp/claude-gc" "$INSTALL_DIR/claude-gc"
-say "Installed $INSTALL_DIR/claude-gc"
 
+# The version an existing copy reports, such as v0.3.0, or nothing.
+version_of() { "$1" version 2>/dev/null | awk '{print $2}'; }
+# A path for messages, with the home directory shown as ~.
+pretty() {
+  case "$1" in
+    "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+target="$INSTALL_DIR/claude-gc"
+previous=""
+[ -x "$target" ] && previous=$(version_of "$target")
+
+mkdir -p "$INSTALL_DIR"
+install -m 0755 "$tmp/claude-gc" "$target"
+installed=$(version_of "$target")
+[ -n "$installed" ] || installed="$VERSION"
+
+if [ -z "$previous" ]; then
+  say "Installed claude-gc $installed at $(pretty "$target")"
+elif [ "$previous" = "$installed" ]; then
+  say "claude-gc $installed at $(pretty "$target") is already up to date"
+else
+  say "Updated claude-gc from $previous to $installed at $(pretty "$target")"
+fi
+
+# Another copy earlier on PATH (from go install, say) would keep running
+# instead of this one, which makes an upgrade look like it did nothing.
+found=$(command -v claude-gc 2>/dev/null || true)
+cmd=claude-gc
 case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *) say "Note: $INSTALL_DIR is not on your PATH." ;;
+  *":$INSTALL_DIR:"*)
+    if [ -n "$found" ] && [ "$found" != "$target" ]; then
+      cmd="\"$target\""
+      say ""
+      say "Warning: \`claude-gc\` still runs $(pretty "$found") ($(version_of "$found")),"
+      say "which comes first on your PATH. Remove it so $installed runs:"
+      say "  rm \"$found\""
+    fi
+    ;;
+  *)
+    cmd="\"$target\""
+    say "Note: $(pretty "$INSTALL_DIR") is not on your PATH."
+    ;;
 esac
-say ""
-say "Next steps:"
-say "  claude-gc status            # see what is running"
-say "  claude-gc run -dry-run      # preview a pass"
-say "  claude-gc service install   # keep it tidy automatically"
+
+# A running daemon keeps the old version until the service is reinstalled.
+unit_mac="$HOME/Library/LaunchAgents/io.github.mateusclira.claude-gc.plist"
+unit_linux="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/claude-gc.service"
+if [ "$previous" != "$installed" ] && { [ -f "$unit_mac" ] || [ -f "$unit_linux" ]; }; then
+  say ""
+  say "The background service is still running the old version. Restart it on"
+  say "$installed, adding any flags you installed it with (such as -life 7d):"
+  say "  $cmd service install"
+fi
+
+if [ -z "$previous" ]; then
+  say ""
+  say "Next steps:"
+  say "  claude-gc status            # see what is running"
+  say "  claude-gc run -dry-run      # preview a pass"
+  say "  claude-gc service install   # keep it tidy automatically"
+fi

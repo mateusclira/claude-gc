@@ -6,12 +6,18 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-27
+
 ### Fixed
 
 - `claude-gc version` no longer prints `commit none, built unknown` for
   binaries installed with `go install`. Those are labelled `go install`
   instead, since Go records no commit for them, and release builds show the
   date of their commit without calling it a build date.
+- The install script says which version it replaced and which it installed.
+  It warns when another copy of claude-gc comes first on your `PATH` and
+  would keep running instead, and when the background service needs
+  `claude-gc service install` to move to the new version.
 
 ## [0.3.0] - 2026-11-27
 
@@ -89,7 +95,8 @@ First release.
   support, an install script, and a GoReleaser cask definition for a
   Homebrew tap.
 
-[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/mateusclira/claude-gc/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mateusclira/claude-gc/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...v0.1.1
