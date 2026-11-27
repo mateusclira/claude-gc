@@ -43,7 +43,7 @@ func (a *app) runDaemon(args []string) int {
 		log.Warn("the schedule will not survive restarts", "error", err)
 	}
 	log.Info("claude-gc daemon starting",
-		"version", a.build.Version,
+		"version", a.build.DisplayVersion(),
 		"schedule", sf.policy().Describe(),
 		"reaps", sf.reaps(),
 		"config_dir", sf.configDir,

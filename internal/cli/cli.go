@@ -11,13 +11,49 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
-// BuildInfo is stamped into the binary at build time.
+// BuildInfo describes how the binary was built. Empty fields are unknown.
 type BuildInfo struct {
-	Version string
-	Commit  string
-	Date    string
+	Version   string // "0.3.0" or "v0.3.0"; empty for a development build
+	Commit    string // short commit hash, with "-dirty" for a modified tree
+	Date      string // commit date, RFC 3339
+	GoInstall bool   // built by `go install module@version`, which records no commit
+}
+
+// DisplayVersion is the version as people see it: "v0.3.0", or "dev".
+func (b BuildInfo) DisplayVersion() string {
+	v := b.Version
+	if v == "" {
+		return "dev"
+	}
+	if v[0] >= '0' && v[0] <= '9' {
+		v = "v" + v
+	}
+	return v
+}
+
+// VersionLine is what `claude-gc version` prints. It names only what the
+// binary knows about itself, so a `go install` build says so instead of
+// reporting an unknown commit.
+func (b BuildInfo) VersionLine() string {
+	var parts []string
+	if b.Commit != "" {
+		parts = append(parts, "commit "+b.Commit)
+	}
+	if b.Date != "" {
+		day := b.Date
+		if t, err := time.Parse(time.RFC3339, b.Date); err == nil {
+			day = t.UTC().Format(time.DateOnly)
+		}
+		parts = append(parts, day)
+	}
+	if b.GoInstall {
+		parts = append(parts, "go install")
+	}
+	parts = append(parts, runtime.Version()+" "+runtime.GOOS+"/"+runtime.GOARCH)
+	return "claude-gc " + b.DisplayVersion() + " (" + strings.Join(parts, ", ") + ")"
 }
 
 type app struct {
@@ -109,12 +145,7 @@ Run "claude-gc <command> -h" for the flags of one command.
 `
 
 func (a *app) version() {
-	v := a.build.Version
-	if v != "dev" && !strings.HasPrefix(v, "v") {
-		v = "v" + v
-	}
-	fmt.Fprintf(a.stdout, "claude-gc %s (commit %s, built %s, %s %s/%s)\n",
-		v, a.build.Commit, a.build.Date, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintln(a.stdout, a.build.VersionLine())
 }
 
 // fail reports an error and returns the exit code for it.

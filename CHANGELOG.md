@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+
+- `claude-gc version` no longer prints `commit none, built unknown` for
+  binaries installed with `go install`. Those are labelled `go install`
+  instead, since Go records no commit for them, and release builds show the
+  date of their commit without calling it a build date.
+
 ## [0.3.0] - 2026-11-27
 
 ### Added

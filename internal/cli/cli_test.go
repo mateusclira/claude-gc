@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestDispatch(t *testing.T) {
 		t.Errorf("help: code=%d", code)
 	}
 	out.Reset()
-	if code := a.run([]string{"version"}); code != 0 || !strings.HasPrefix(out.String(), "claude-gc v1.2.3 (commit abc") {
+	if code := a.run([]string{"version"}); code != 0 || !strings.HasPrefix(out.String(), "claude-gc v1.2.3 (commit abc, today, go") {
 		t.Errorf("version: code=%d out=%q", code, out.String())
 	}
 	errb.Reset()
@@ -413,5 +414,30 @@ func TestShortenHome(t *testing.T) {
 	}
 	if got := shortenHome("/etc"); got != "/etc" {
 		t.Errorf("shortenHome(/etc) = %q", got)
+	}
+}
+
+func TestVersionLine(t *testing.T) {
+	platform := runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH
+	tests := []struct {
+		name  string
+		build BuildInfo
+		want  string
+	}{
+		{"release", BuildInfo{Version: "0.3.0", Commit: "cb645bb", Date: "2026-11-27T18:14:15Z"},
+			"claude-gc v0.3.0 (commit cb645bb, 2026-11-27, " + platform + ")"},
+		{"go install", BuildInfo{Version: "v0.3.0", GoInstall: true},
+			"claude-gc v0.3.0 (go install, " + platform + ")"},
+		{"modified checkout", BuildInfo{Version: "v0.3.1-0.20261127191851-d772047be8b9+dirty", Commit: "d772047-dirty", Date: "2026-11-27T19:18:51-03:00"},
+			"claude-gc v0.3.1-0.20261127191851-d772047be8b9+dirty (commit d772047-dirty, 2026-11-27, " + platform + ")"},
+		{"nothing known", BuildInfo{},
+			"claude-gc dev (" + platform + ")"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.build.VersionLine(); got != tt.want {
+				t.Errorf("got  %q\nwant %q", got, tt.want)
+			}
+		})
 	}
 }
