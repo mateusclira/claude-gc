@@ -67,11 +67,9 @@ release:
     ## Install
 
     ```sh
-    brew install mateusclira/tap/claude-gc
+    curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | VERSION={{ .Tag }} sh
     # or
     go install github.com/mateusclira/claude-gc/cmd/claude-gc@{{ .Tag }}
-    # or
-    curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | VERSION={{ .Tag }} sh
     ```
 
 # Homebrew tap (macOS). GoReleaser deprecated formula generation for

@@ -24,8 +24,9 @@ First release.
 - Process identity verification against the session record (command line
   and start time), self-protection for the current session, and an
   entrypoint allow-list defaulting to `claude-vscode`.
-- Release binaries for macOS and Linux on amd64 and arm64, a Homebrew tap
-  for macOS, `go install` support and an install script.
+- Release binaries for macOS and Linux on amd64 and arm64, `go install`
+  support, an install script, and a GoReleaser cask definition for a
+  Homebrew tap.
 
 [Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/mateusclira/claude-gc/releases/tag/v0.1.0

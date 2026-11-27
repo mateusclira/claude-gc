@@ -70,10 +70,10 @@ works as before.
 
 ## Install
 
-**Homebrew** (macOS)
+**Install script** (downloads the latest release to `~/.local/bin` and verifies its checksum)
 
 ```sh
-brew install mateusclira/tap/claude-gc
+curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | sh
 ```
 
 **Go** (macOS and Linux)
@@ -82,14 +82,9 @@ brew install mateusclira/tap/claude-gc
 go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest
 ```
 
-**Install script** (downloads the latest release to `~/.local/bin` and verifies its checksum)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | sh
-```
-
 **Binaries** for macOS and Linux on amd64 and arm64 are on the
 [releases page](https://github.com/mateusclira/claude-gc/releases/latest).
+A Homebrew tap is on the way.
 
 ## Quick start
 
