@@ -250,6 +250,29 @@ The daemon is a single Go process using about 7 MB of memory. Between passes
 it wakes every few minutes only to look at the clock, which is how it notices
 a pass that came due while the computer slept.
 
+## Upgrading
+
+Install the new version the way you installed the first one, check that it
+is the one on your `PATH`, then reinstall the service if you use it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | sh
+# or: go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest
+
+claude-gc version             # should print the new version
+claude-gc service install     # restarts the daemon on the new binary
+```
+
+The last step matters. Replacing the binary does not touch a daemon that is
+already running: it keeps running the old version, and when it next restarts
+it uses the flags the old version wrote into its unit file. Coming from 0.1.x,
+that means a pass every 30 minutes instead of once a day.
+
+`service install` rewrites the unit file and restarts the daemon. It does not
+read your old settings, so pass any flags you changed again, for example
+`claude-gc service install -life 7d`. The daemon remembers its last pass, so
+reinstalling it does not cause an extra one.
+
 ## Scripting
 
 `status -json` and `run -json` print stable JSON. For example, memory held
