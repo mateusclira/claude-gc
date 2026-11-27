@@ -12,7 +12,7 @@ const runHelp = `Usage: claude-gc run [flags]
 
 Reaps abandoned sessions once, right now, whatever the daemon's schedule
 says: sends SIGTERM to each eligible session, waits for the grace period,
-then SIGKILL, and removes the files it left behind. Use --dry-run to see what
+then SIGKILL, and removes the files it left behind. Use -dry-run to see what
 would happen without changing anything.
 `
 
@@ -21,7 +21,7 @@ func (a *app) runOnce(args []string) int {
 	var dryRun bool
 	fs := a.flagSet("run", &sf, runHelp)
 	fs.BoolVar(&dryRun, "dry-run", false, "show what would be reaped without doing it")
-	fs.BoolVar(&dryRun, "n", false, "shorthand for --dry-run")
+	fs.BoolVar(&dryRun, "n", false, "shorthand for -dry-run")
 	fs.BoolVar(&sf.json, "json", false, "print the result as JSON")
 	if ok, code := a.parseFlags(fs, &sf, args); !ok {
 		return code

@@ -33,10 +33,10 @@ const (
 // Config describes the daemon command the service runs.
 type Config struct {
 	Binary      string
-	ConfigDir   string // passed as --config-dir when set
-	Interval    time.Duration
-	MinUptime   time.Duration
-	MaxIdle     time.Duration
+	ConfigDir   string        // passed as -config-dir when set
+	Interval    time.Duration // -fq
+	MinUptime   time.Duration // -min-uptime
+	MaxIdle     time.Duration // -life
 	Entrypoints []string
 	Grace       time.Duration
 	Verbose     bool
@@ -45,19 +45,19 @@ type Config struct {
 // Argv returns the full command line the service runs.
 func (c Config) Argv() []string {
 	argv := []string{c.Binary, "daemon",
-		"--interval", humanize.FormatDuration(c.Interval),
-		"--min-uptime", humanize.FormatDuration(c.MinUptime),
-		"--max-idle", humanize.FormatDuration(c.MaxIdle),
-		"--grace", humanize.FormatDuration(c.Grace),
+		"-fq", humanize.FormatDuration(c.Interval),
+		"-life", humanize.FormatDuration(c.MaxIdle),
+		"-min-uptime", humanize.FormatDuration(c.MinUptime),
+		"-grace", humanize.FormatDuration(c.Grace),
 	}
 	if len(c.Entrypoints) > 0 {
-		argv = append(argv, "--entrypoints", strings.Join(c.Entrypoints, ","))
+		argv = append(argv, "-entrypoints", strings.Join(c.Entrypoints, ","))
 	}
 	if c.ConfigDir != "" {
-		argv = append(argv, "--config-dir", c.ConfigDir)
+		argv = append(argv, "-config-dir", c.ConfigDir)
 	}
 	if c.Verbose {
-		argv = append(argv, "--verbose")
+		argv = append(argv, "-verbose")
 	}
 	return argv
 }

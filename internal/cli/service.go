@@ -29,14 +29,17 @@ By default the daemon runs a pass once a day, and only once the computer has
 been up for 24 hours: a restart ends every Claude Code session, so right
 after one there is nothing to collect.
 
-install accepts the shared flags (--max-idle, --entrypoints, --grace,
---config-dir, --verbose) plus:
-  --interval <dur>     Time between passes (default 24h)
-  --min-uptime <dur>   Hold passes back until the computer has been up this
-                       long (default 24h; 0 disables)
-  --binary <path>      claude-gc executable to run (default: this one)
+install takes the daemon's flags:
+  -fq <dur>            How often to run a pass (default 24h)
+  -life <dur>          How long a session may stay unused before it is
+                       reaped (default 3d)
+  -min-uptime <dur>    Skip passes until the computer has been up this long
+                       (default 24h, or -life if shorter; 0 disables)
+  -entrypoints, -grace, -config-dir and -verbose, as for every command
+  -binary <path>       claude-gc executable to run (default: this one)
 
-Run install again with new flags to change the settings.
+Run install again with new flags to change the settings, for example:
+  claude-gc service install -fq 2h -life 3d
 `
 
 func (a *app) service(args []string) int {
@@ -75,7 +78,7 @@ func (a *app) serviceInstall(mgr service.Manager, args []string) int {
 	var binary string
 	fs := a.flagSet("service install", &sf, serviceHelp)
 	sf.addScheduleFlags(fs)
-	fs.StringVar(&binary, "binary", "", "claude-gc executable to run (default: this one)")
+	fs.StringVar(&binary, "binary", "", "claude-gc `executable` to run (default: this one)")
 	if ok, code := a.parseFlags(fs, &sf, args); !ok {
 		return code
 	}
@@ -83,13 +86,13 @@ func (a *app) serviceInstall(mgr service.Manager, args []string) int {
 		binary, _ = resolveBinary()
 	}
 	if binary == "" {
-		return a.fail(errors.New("could not determine the path of this executable; pass --binary"))
+		return a.fail(errors.New("could not determine the path of this executable; pass -binary"))
 	}
 	cfg := service.Config{
 		Binary:      binary,
-		Interval:    sf.interval.d,
+		Interval:    sf.fq.d,
 		MinUptime:   sf.minUptime.d,
-		MaxIdle:     sf.maxIdle.d,
+		MaxIdle:     sf.life.d,
 		Entrypoints: sf.entrypointList(),
 		Grace:       sf.grace.d,
 		Verbose:     sf.verbose,

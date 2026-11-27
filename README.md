@@ -87,8 +87,10 @@ been up for a full day:
   pass right away**, then one every 24 hours.
 - **`claude-gc run` ignores the schedule.** It always runs, right now.
 
-Both numbers are configurable: `--interval` sets the time between passes and
-`--min-uptime` the uptime to wait for, with `0` turning that rule off.
+Both numbers are configurable. `-fq` sets how often passes run and
+`-min-uptime` how long to wait after a restart, with `0` turning the wait off.
+Unless you set it yourself, the wait never outlasts `-life`, so a short life
+such as `-life 2h` is honored right after a restart too.
 
 ## Install
 
@@ -112,13 +114,21 @@ A Homebrew tap is on the way.
 
 ```sh
 claude-gc status            # what is running and what would be reaped; changes nothing
-claude-gc run --dry-run     # preview one pass
+claude-gc run -dry-run      # preview one pass
 claude-gc run               # reap now
 claude-gc service install   # keep it tidy automatically
 ```
 
 `service install` registers a per-user background service: a launchd agent on
 macOS, a systemd user unit on Linux. It starts right away and on every login.
+
+Two flags shape what it does: `-fq` is how often it runs, and `-life` is how
+long a session may stay unused before it is reaped. The defaults are
+`-fq 24h -life 3d`. To check every two hours instead:
+
+```sh
+claude-gc service install -fq 2h -life 3d
+```
 
 ```
 $ claude-gc service install
@@ -136,11 +146,11 @@ Logs:       ~/Library/Logs/claude-gc/claude-gc.log
 
 | Session state | Action |
 | --- | --- |
-| Transcript untouched for longer than `--max-idle` | **reap** |
-| No transcript on disk and started longer than `--max-idle` ago | **reap** |
-| Used within `--max-idle` | keep |
+| Transcript untouched for longer than `-life` | **reap** |
+| No transcript on disk and started longer than `-life` ago | **reap** |
+| Used within `-life` | keep |
 | The session claude-gc itself is running inside | skip |
-| Entrypoint other than `claude-vscode`, such as `claude` in a terminal | skip, unless listed in `--entrypoints` |
+| Entrypoint other than `claude-vscode`, such as `claude` in a terminal | skip, unless listed in `-entrypoints` |
 | Record whose process already exited | clean up the record only |
 | Live process that cannot be verified as the recorded session | skip |
 
@@ -161,32 +171,41 @@ claude-gc kills processes, so it is deliberately conservative:
 - **It never deletes transcripts.** Nothing under `~/.claude/projects` is
   touched. Claude Code prunes old transcripts itself; see
   [`cleanupPeriodDays`](https://docs.anthropic.com/en/docs/claude-code/settings).
-- **`status` and `run --dry-run` never change anything**, so you can always
+- **`status` and `run -dry-run` never change anything**, so you can always
   look before you leap.
 
 ## Configuration
 
-Every tunable is a flag, with an environment variable as fallback. Durations
-accept `d`, `h`, `m` and `s`, such as `3d`, `24h`, `1d12h` or `30m`, and `0`.
+Every setting is a flag, with an environment variable as fallback. The two
+that matter most are `-fq` and `-life`.
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
-| `--max-idle` | `CLAUDE_GC_MAX_IDLE` | `3d` | Reap sessions idle for longer than this |
-| `--interval` | `CLAUDE_GC_INTERVAL` | `24h` | Time between passes (`daemon`, `service install`) |
-| `--min-uptime` | `CLAUDE_GC_MIN_UPTIME` | `24h` | No pass until the computer has been up this long; `0` disables (`daemon`, `service install`) |
-| `--entrypoints` | `CLAUDE_GC_ENTRYPOINTS` | `claude-vscode` | Comma-separated entrypoints to reap; `*` for all |
-| `--grace` | `CLAUDE_GC_GRACE` | `5s` | Wait after SIGTERM before SIGKILL |
-| `--config-dir` | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code keeps its state |
-| `--json` | | | Machine-readable output for `status` and `run` |
-| `--verbose` | | | Debug logging |
+| `-life` | `CLAUDE_GC_LIFE` | `3d` | How long a session may stay unused before it is reaped |
+| `-fq` | `CLAUDE_GC_FQ` | `24h` | How often the daemon runs a pass |
+| `-min-uptime` | `CLAUDE_GC_MIN_UPTIME` | `24h` | No pass until the computer has been up this long. Shrinks to `-life` when that is shorter; `0` disables |
+| `-entrypoints` | `CLAUDE_GC_ENTRYPOINTS` | `claude-vscode` | Comma-separated entrypoints to reap; `*` for all |
+| `-grace` | `CLAUDE_GC_GRACE` | `5s` | Wait after SIGTERM before SIGKILL |
+| `-config-dir` | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code keeps its state |
+| `-json` | | | Machine-readable output for `status` and `run` |
+| `-verbose` | | | Debug logging |
+
+`-fq` and `-min-uptime` apply to `daemon` and `service install`. The others
+apply to every command.
+
+Durations use `d`, `h`, `m` and `s`, such as `3d`, `24h`, `2h`, `30m` or
+`1d12h`, and `0`. Flags take one dash or two, so `-fq 2h`, `--fq 2h` and
+`-fq=2h` are the same. The names from before 0.3.0, `-interval` and
+`-max-idle`, still work.
 
 Examples:
 
 ```sh
-claude-gc status --max-idle 1d                            # tighter threshold, just looking
-claude-gc run --entrypoints 'claude-vscode,cli'           # also reap idle terminal sessions
-claude-gc service install --max-idle 7d                   # only sessions idle for a week
-claude-gc service install --interval 12h --min-uptime 0   # twice a day, even right after a restart
+claude-gc status -life 2h                        # what would a 2-hour life reap? changes nothing
+claude-gc run -entrypoints 'claude-vscode,cli'   # also reap idle terminal sessions
+claude-gc service install -fq 2h                 # check every 2 hours instead of once a day
+claude-gc service install -fq 30m -life 2h       # strict: anything unused for 2 hours goes
+claude-gc service install -life 7d               # gentle: only sessions unused for a week
 ```
 
 To change the settings of an installed service, run `service install` again
@@ -233,11 +252,11 @@ a pass that came due while the computer slept.
 
 ## Scripting
 
-`status --json` and `run --json` print stable JSON. For example, memory held
+`status -json` and `run -json` print stable JSON. For example, memory held
 by sessions that would be reaped:
 
 ```sh
-claude-gc status --json | jq '.summary.reapableKB / 1024 | floor'
+claude-gc status -json | jq '.summary.reapableKB / 1024 | floor'
 ```
 
 ## FAQ
@@ -253,22 +272,27 @@ history. Reaping only ends the idle process.
 
 **Why three days?**
 It is the gap between "I stepped away for the weekend" and "I forgot this
-existed". Tune it with `--max-idle`.
+existed". Tune it with `-life`.
+
+**Does `-life` count from when a session started?**
+No, from its last message. A session you are using is never cut off, however
+old it is. Only sessions whose transcript is gone, which Claude Code deletes
+after a month of inactivity, count from when they started.
 
 **Why once a day?**
 Sessions become eligible after three idle days, so a daily pass reaps each
 one within a day of that, and the daemon stays out of the way the rest of the
-time. Use `--interval` to run more often.
+time. Use `-fq` to run more often, for example `-fq 2h`.
 
 **Why does nothing happen right after a restart?**
 There is nothing to collect. A restart ends every Claude Code process, and no
 session started since then can have been idle for three days. The daemon
-waits a full day of uptime before its first pass. `--min-uptime 0` turns this
-off.
+waits a full day of uptime before its first pass. `-min-uptime 0` turns this
+off, and a `-life` shorter than a day shortens the wait to match.
 
 **What about sessions started from a terminal?**
 Skipped by default, because a terminal tab is something you chose to keep
-open. `--entrypoints '*'` or `--entrypoints claude-vscode,cli` opts them in.
+open. `-entrypoints '*'` or `-entrypoints claude-vscode,cli` opts them in.
 `claude-gc status` shows every session's entrypoint decision, so you can see
 what would change.
 

@@ -17,7 +17,7 @@ body:
     id: status
     attributes:
       label: Output of `claude-gc status`
-      description: Paste the table, or `claude-gc status --json` if that is easier. Remove project names if you prefer.
+      description: Paste the table, or `claude-gc status -json` if that is easier. Remove project names if you prefer.
       render: text
   - type: input
     id: version

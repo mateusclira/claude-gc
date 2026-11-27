@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-27
+
+### Added
+
+- `-fq` sets how often the daemon runs, for example `-fq 30m` or `-fq 2h`.
+  The default is `24h`.
+- `-life` sets how long a session may stay unused before it is reaped, for
+  example `-life 3d` or `-life 2h`. The default is `3d`.
+- `CLAUDE_GC_FQ` and `CLAUDE_GC_LIFE` set the same from the environment.
+
+### Changed
+
+- `-min-uptime` now defaults to 24 hours or `-life`, whichever is shorter, so
+  a short life is honored right after a restart too.
+- `-interval` and `-max-idle` are now `-fq` and `-life`. The old names, and
+  `CLAUDE_GC_INTERVAL` and `CLAUDE_GC_MAX_IDLE`, keep working, so services
+  installed by earlier versions start as before.
+- Help, docs and service unit files use single-dash flags, as Go's own `-h`
+  output does. Flags still take one dash or two.
+
 ## [0.2.0] - 2026-11-27
 
 ### Changed
@@ -62,7 +82,8 @@ First release.
   support, an install script, and a GoReleaser cask definition for a
   Homebrew tap.
 
-[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mateusclira/claude-gc/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mateusclira/claude-gc/releases/tag/v0.1.0

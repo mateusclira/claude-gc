@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/mateusclira/claude-gc/internal/daemon"
+	"github.com/mateusclira/claude-gc/internal/humanize"
+	"github.com/mateusclira/claude-gc/internal/service"
 )
 
 func newTestApp() (*app, *bytes.Buffer, *bytes.Buffer) {
@@ -50,16 +52,21 @@ func TestFlagValidation(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"zero max-idle", []string{"status", "--max-idle", "0"}, nil, "--max-idle must be greater than zero"},
-		{"unitless max-idle", []string{"status", "--max-idle", "3"}, nil, "missing unit"},
-		{"bad min-uptime", []string{"daemon", "--min-uptime", "-1h"}, nil, `invalid value "-1h"`},
+		{"zero life", []string{"status", "-life", "0"}, nil, "-life must be greater than zero"},
+		{"zero life, old name", []string{"status", "--max-idle", "0"}, nil, "-life must be greater than zero"},
+		{"unitless life", []string{"status", "-life", "3"}, nil, "missing unit"},
+		{"bad life", []string{"status", "-life", "soon"}, nil, `invalid value "soon"`},
+		{"bad life env", []string{"status"}, map[string]string{"CLAUDE_GC_LIFE": "never"}, "CLAUDE_GC_LIFE"},
+		{"bad old life env", []string{"status"}, map[string]string{"CLAUDE_GC_MAX_IDLE": "never"}, "CLAUDE_GC_MAX_IDLE"},
+		{"short fq", []string{"daemon", "-fq", "5s"}, nil, "-fq must be at least 1m"},
+		{"short fq, old name", []string{"daemon", "--interval", "5s"}, nil, "-fq must be at least 1m"},
+		{"bad fq env", []string{"daemon"}, map[string]string{"CLAUDE_GC_FQ": "often"}, "CLAUDE_GC_FQ"},
+		{"fq on status", []string{"status", "-fq", "1h"}, nil, "flag provided but not defined: -fq"},
+		{"old fq name on status", []string{"status", "-interval", "1h"}, nil, "flag provided but not defined: -interval"},
+		{"bad min-uptime", []string{"daemon", "-min-uptime", "-1h"}, nil, `invalid value "-1h"`},
 		{"bad min-uptime env", []string{"daemon"}, map[string]string{"CLAUDE_GC_MIN_UPTIME": "a while"}, "CLAUDE_GC_MIN_UPTIME"},
-		{"interval flag on status", []string{"status", "--interval", "1h"}, nil, "flag provided but not defined: -interval"},
-		{"bad max-idle", []string{"status", "--max-idle", "soon"}, nil, `invalid value "soon"`},
-		{"bad env", []string{"status"}, map[string]string{"CLAUDE_GC_MAX_IDLE": "never"}, "CLAUDE_GC_MAX_IDLE"},
-		{"empty entrypoints", []string{"status", "--entrypoints", " , "}, nil, "--entrypoints must name"},
+		{"empty entrypoints", []string{"status", "-entrypoints", " , "}, nil, "-entrypoints must name"},
 		{"positional", []string{"status", "extra"}, nil, `unexpected argument "extra"`},
-		{"short interval", []string{"daemon", "--interval", "5s"}, nil, "--interval must be at least 1m"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -77,39 +84,165 @@ func TestFlagValidation(t *testing.T) {
 	}
 }
 
-func TestEnvDefaults(t *testing.T) {
-	t.Setenv("CLAUDE_GC_MAX_IDLE", "1d")
-	t.Setenv("CLAUDE_GC_ENTRYPOINTS", "claude-vscode, cli")
-	t.Setenv("CLAUDE_GC_GRACE", "9s")
-	t.Setenv("CLAUDE_GC_INTERVAL", "2h")
-	t.Setenv("CLAUDE_GC_MIN_UPTIME", "0")
+// parseSchedule parses args the way the daemon and service install do.
+func parseSchedule(t *testing.T, args ...string) *scanFlags {
+	t.Helper()
 	a, _, _ := newTestApp()
 	var sf scanFlags
 	fs := a.flagSet("test", &sf, "")
 	sf.addScheduleFlags(fs)
-	if err := fs.Parse([]string{"--grace", "1s"}); err != nil {
-		t.Fatal(err)
+	if err := fs.Parse(args); err != nil {
+		t.Fatalf("parse %v: %v", args, err)
 	}
 	if err := sf.resolve(fs); err != nil {
-		t.Fatal(err)
+		t.Fatalf("resolve %v: %v", args, err)
 	}
-	if sf.maxIdle.d != 24*time.Hour {
-		t.Errorf("max-idle from env = %v, want 24h", sf.maxIdle.d)
+	return &sf
+}
+
+func TestFqAndLife(t *testing.T) {
+	sf := parseSchedule(t, "-fq", "30m", "-life", "2h")
+	if sf.fq.d != 30*time.Minute || sf.life.d != 2*time.Hour {
+		t.Errorf("fq = %v, life = %v", sf.fq.d, sf.life.d)
+	}
+	if got := sf.policy().Describe(); got != "every 30m, after 2 hours of uptime" {
+		t.Errorf("policy = %q", got)
+	}
+	if got := sf.reaps(); got != "claude-vscode sessions idle for longer than 2h" {
+		t.Errorf("reaps = %q", got)
+	}
+	// Every spelling the flag package allows.
+	for _, args := range [][]string{
+		{"--fq", "2h", "--life", "3d"},
+		{"-fq=2h", "-life=3d"},
+		{"--fq=2h", "--life=3d"},
+	} {
+		sf := parseSchedule(t, args...)
+		if sf.fq.d != 2*time.Hour || sf.life.d != 3*humanize.Day {
+			t.Errorf("%v: fq = %v, life = %v", args, sf.fq.d, sf.life.d)
+		}
+	}
+}
+
+func TestOldFlagNamesStillWork(t *testing.T) {
+	// The exact arguments a service installed by v0.2.0 starts the daemon with.
+	sf := parseSchedule(t, "--interval", "12h", "--min-uptime", "24h", "--max-idle", "2d", "--grace", "5s", "--entrypoints", "claude-vscode")
+	if sf.fq.d != 12*time.Hour || sf.life.d != 2*humanize.Day || sf.minUptime.d != 24*time.Hour {
+		t.Errorf("fq = %v, life = %v, min-uptime = %v", sf.fq.d, sf.life.d, sf.minUptime.d)
+	}
+}
+
+func TestMinUptimeFollowsShortLife(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		env  string
+		want time.Duration
+	}{
+		{"default life", nil, "", 24 * time.Hour},
+		{"long life", []string{"-life", "7d"}, "", 24 * time.Hour},
+		{"short life", []string{"-life", "2h"}, "", 2 * time.Hour},
+		{"short life, explicit wait", []string{"-life", "2h", "-min-uptime", "24h"}, "", 24 * time.Hour},
+		{"short life, rule off", []string{"-life", "2h", "-min-uptime", "0"}, "", 0},
+		{"short life, wait from env", []string{"-life", "2h"}, "6h", 6 * time.Hour},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_GC_MIN_UPTIME", c.env)
+			if sf := parseSchedule(t, c.args...); sf.minUptime.d != c.want {
+				t.Errorf("min-uptime = %v, want %v", sf.minUptime.d, c.want)
+			}
+		})
+	}
+}
+
+func TestEnvDefaults(t *testing.T) {
+	t.Setenv("CLAUDE_GC_LIFE", "1d")
+	t.Setenv("CLAUDE_GC_FQ", "2h")
+	t.Setenv("CLAUDE_GC_ENTRYPOINTS", "claude-vscode, cli")
+	t.Setenv("CLAUDE_GC_GRACE", "9s")
+	t.Setenv("CLAUDE_GC_MIN_UPTIME", "0")
+	sf := parseSchedule(t, "-grace", "1s")
+	if sf.life.d != 24*time.Hour {
+		t.Errorf("life from env = %v, want 24h", sf.life.d)
+	}
+	if sf.fq.d != 2*time.Hour {
+		t.Errorf("fq from env = %v, want 2h", sf.fq.d)
 	}
 	if got := strings.Join(sf.entrypointList(), "|"); got != "claude-vscode|cli" {
 		t.Errorf("entrypoints from env = %q", got)
 	}
-	if got := sf.grace.String(); got != "1s" {
-		t.Errorf("explicit flag must win over env: grace = %q", got)
-	}
-	if got := sf.interval.String(); got != "2h" {
-		t.Errorf("interval from env = %q", got)
+	if sf.grace.d != time.Second {
+		t.Errorf("an explicit flag must win over the environment: grace = %v", sf.grace.d)
 	}
 	if sf.minUptime.d != 0 {
 		t.Errorf("min-uptime from env = %v, want 0 (disabled)", sf.minUptime.d)
 	}
 	if got := sf.policy().Describe(); got != "every 2 hours" {
 		t.Errorf("policy = %q", got)
+	}
+}
+
+func TestOldEnvNames(t *testing.T) {
+	t.Setenv("CLAUDE_GC_MAX_IDLE", "1d")
+	t.Setenv("CLAUDE_GC_INTERVAL", "2h")
+	sf := parseSchedule(t)
+	if sf.life.d != 24*time.Hour || sf.fq.d != 2*time.Hour {
+		t.Errorf("old names: life = %v, fq = %v", sf.life.d, sf.fq.d)
+	}
+	t.Setenv("CLAUDE_GC_LIFE", "5d")
+	t.Setenv("CLAUDE_GC_FQ", "6h")
+	sf = parseSchedule(t)
+	if sf.life.d != 5*humanize.Day || sf.fq.d != 6*time.Hour {
+		t.Errorf("new names must win over old ones: life = %v, fq = %v", sf.life.d, sf.fq.d)
+	}
+}
+
+func TestServiceArgvRoundTrip(t *testing.T) {
+	// Whatever service install writes into the unit file, the daemon must
+	// read back as the same settings.
+	want := parseSchedule(t, "-fq", "2h", "-life", "36h", "-grace", "9s", "-entrypoints", "claude-vscode,cli", "-config-dir", "/srv/claude", "-verbose")
+	cfg := service.Config{
+		Binary:      "/usr/local/bin/claude-gc",
+		ConfigDir:   want.configDir,
+		Interval:    want.fq.d,
+		MinUptime:   want.minUptime.d,
+		MaxIdle:     want.life.d,
+		Entrypoints: want.entrypointList(),
+		Grace:       want.grace.d,
+		Verbose:     want.verbose,
+	}
+	argv := cfg.Argv()
+	if argv[1] != "daemon" {
+		t.Fatalf("argv = %v", argv)
+	}
+	got := parseSchedule(t, argv[2:]...)
+	if got.fq != want.fq || got.life != want.life || got.minUptime != want.minUptime || got.grace != want.grace ||
+		got.entrypoints != want.entrypoints || got.configDir != want.configDir || got.verbose != want.verbose {
+		t.Errorf("round trip through %v:\n got %+v\nwant %+v", argv, *got, *want)
+	}
+}
+
+func TestHelpShowsNewNames(t *testing.T) {
+	for _, cmd := range []string{"daemon", "status"} {
+		a, _, errb := newTestApp()
+		if code := a.run([]string{cmd, "-h"}); code != 0 {
+			t.Fatalf("%s -h: code %d", cmd, code)
+		}
+		help := errb.String()
+		for _, want := range []string{"-life duration", "Flags take one dash or two"} {
+			if !strings.Contains(help, want) {
+				t.Errorf("%s -h missing %q:\n%s", cmd, want, help)
+			}
+		}
+		for _, old := range []string{"-max-idle", "-interval"} {
+			if strings.Contains(help, old) {
+				t.Errorf("%s -h shows the old name %q:\n%s", cmd, old, help)
+			}
+		}
+		if hasFq := strings.Contains(help, "-fq duration"); hasFq != (cmd == "daemon") {
+			t.Errorf("%s -h: shows -fq = %v", cmd, hasFq)
+		}
 	}
 }
 
@@ -140,6 +273,7 @@ func TestScheduleEnvIgnoredByStatus(t *testing.T) {
 	// status and run have no schedule, so a schedule setting meant for the
 	// daemon must not break them.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_GC_FQ", "5s")
 	t.Setenv("CLAUDE_GC_INTERVAL", "5s")
 	t.Setenv("CLAUDE_GC_MIN_UPTIME", "never")
 	a, _, errb := newTestApp()

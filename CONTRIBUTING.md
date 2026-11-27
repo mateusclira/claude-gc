@@ -21,9 +21,9 @@ make lint           # golangci-lint run
 ./bin/claude-gc status
 ```
 
-`claude-gc status` and `claude-gc run --dry-run` never change anything, so
+`claude-gc status` and `claude-gc run -dry-run` never change anything, so
 they are safe to run against your real Claude Code state while developing.
-When you want to exercise the real thing, point `--config-dir` at a scratch
+When you want to exercise the real thing, point `-config-dir` at a scratch
 directory with hand-made session records instead of your own.
 
 ## Project layout
@@ -45,7 +45,7 @@ them:
 
 1. **`Scan` is read-only and `Apply` is the only thing that acts.** Every
    decision is made from a snapshot and recorded with a reason, so `status`,
-   `run --dry-run` and the daemon always agree.
+   `run -dry-run` and the daemon always agree.
 2. **A process is only ever signalled after its identity has been verified**
    against the session record (command line and start time), and never when
    it is an ancestor of the current process.
