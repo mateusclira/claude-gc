@@ -80,6 +80,9 @@ type Manager interface {
 	Uninstall() error
 	// Status reports whether the service is installed and running.
 	Status() (Status, error)
+	// Restart restarts the daemon from its current unit, so it picks up a
+	// new binary at the same path and keeps its flags.
+	Restart() error
 	// Logs writes recent daemon logs to w, following them when follow is set.
 	Logs(w io.Writer, follow bool) error
 	// UnitPath is where the unit file lives.
@@ -141,6 +144,17 @@ func render(name string, data any) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// Runs reports whether the installed unit runs binary, written exactly as
+// Install writes it.
+func Runs(m Manager, binary string) bool {
+	unit, err := os.ReadFile(m.UnitPath())
+	if err != nil || binary == "" {
+		return false
+	}
+	return bytes.Contains(unit, []byte("<string>"+xmlEscape(binary)+"</string>")) ||
+		bytes.Contains(unit, []byte(systemdQuote(binary)))
 }
 
 func xmlEscape(s string) string {

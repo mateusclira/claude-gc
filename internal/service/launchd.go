@@ -68,6 +68,13 @@ func (l *launchd) Uninstall() error {
 	return removeFile(l.UnitPath())
 }
 
+func (l *launchd) Restart() error {
+	if out, err := run("launchctl", "kickstart", "-k", l.target()); err != nil {
+		return fmt.Errorf("launchctl kickstart failed: %w\n%s", err, out)
+	}
+	return nil
+}
+
 func (l *launchd) Status() (Status, error) {
 	st := Status{UnitPath: l.UnitPath(), LogHint: l.LogHint(), Installed: exists(l.UnitPath())}
 	out, err := run("launchctl", "print", l.target())

@@ -87,6 +87,8 @@ func (a *app) run(args []string) int {
 		return a.runDaemon(rest)
 	case "service":
 		return a.service(rest)
+	case "upgrade":
+		return a.upgrade(rest)
 	case "version", "--version", "-v":
 		a.version()
 		return 0
@@ -109,6 +111,7 @@ Commands:
   run        Reap abandoned sessions once, right now (-dry-run to preview)
   daemon     Run continuously, reaping once a day
   service    Install, inspect or remove the background service
+  upgrade    Upgrade claude-gc to the latest release (-check to only look)
   version    Print version information
 
 Main flags:

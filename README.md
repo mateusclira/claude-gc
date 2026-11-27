@@ -175,6 +175,9 @@ claude-gc kills processes, so it is deliberately conservative:
   [`cleanupPeriodDays`](https://code.claude.com/docs/en/settings).
 - **`status` and `run -dry-run` never change anything**, so you can always
   look before you leap.
+- **It never phones home.** The only network access is `claude-gc upgrade`,
+  which runs when you ask and downloads from this repository's GitHub
+  releases.
 
 ## Configuration
 
@@ -254,25 +257,41 @@ a pass that came due while the computer slept.
 
 ## Upgrading
 
-Run the installer again. It says which version you had, which one you have
-now, and what else to do, if anything:
+From 0.4.0 on, claude-gc upgrades itself:
+
+```sh
+claude-gc upgrade -check    # is there a newer release?
+claude-gc upgrade           # install it
+```
+
+```
+Downloading claude-gc v0.4.1 for darwin/arm64
+Checksum verified against the release's checksums.txt
+Updated claude-gc from v0.4.0 to v0.4.1 at ~/.local/bin/claude-gc
+Restarted the background service on v0.4.1, with the same settings.
+```
+
+It downloads the newest
+[release](https://github.com/mateusclira/claude-gc/releases), checks it
+against the release's checksums, makes sure it runs, and only then replaces
+the old binary. If the background service runs this copy, it is restarted on
+the new version with the same settings. `-version v0.4.0` installs a
+specific release instead. Homebrew installs are upgraded with
+`brew upgrade claude-gc`.
+
+Before 0.4.0 there is no `upgrade` command, so run the installer once more.
+It says which version you had and which one you have now:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mateusclira/claude-gc/main/scripts/install.sh | sh
 ```
 
-```
-Updated claude-gc from v0.3.0 to v0.3.1 at ~/.local/bin/claude-gc
-```
+If you installed with Go, `go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest`
+works too. Every route installs the newest release, not unreleased changes on
+`main`.
 
-If you installed with Go, run
-`go install github.com/mateusclira/claude-gc/cmd/claude-gc@latest` instead.
-Either way you get the newest
-[release](https://github.com/mateusclira/claude-gc/releases), not
-unreleased changes on `main`.
-
-Two things can make an upgrade look like it did nothing. The installer warns
-about both:
+Two things can make an upgrade look like it did nothing. `claude-gc upgrade`
+handles the second, and the installer warns about both:
 
 - **Another copy runs first.** If you installed claude-gc more than one way,
   the copy earliest on your `PATH` is the one that runs. `which -a claude-gc`

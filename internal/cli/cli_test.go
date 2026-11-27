@@ -441,3 +441,18 @@ func TestVersionLine(t *testing.T) {
 		})
 	}
 }
+
+func TestUpgradeUsage(t *testing.T) {
+	a, _, errb := newTestApp()
+	if code := a.run([]string{"upgrade", "-h"}); code != 0 || !strings.Contains(errb.String(), "Usage: claude-gc upgrade") {
+		t.Errorf("upgrade -h: code=%d stderr=%q", code, errb.String())
+	}
+	errb.Reset()
+	if code := a.run([]string{"upgrade", "now"}); code != 2 {
+		t.Errorf("upgrade now: code=%d", code)
+	}
+	errb.Reset()
+	if code := a.run([]string{"upgrade", "-bogus"}); code != 2 {
+		t.Errorf("upgrade -bogus: code=%d", code)
+	}
+}

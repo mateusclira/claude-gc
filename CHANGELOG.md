@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- `claude-gc upgrade` replaces claude-gc with the latest release. It checks
+  the download against the release's checksums and runs it before replacing
+  the old binary, and restarts the background service on the new version
+  with the same settings. `-check` only reports whether a newer release
+  exists; `-version` installs a specific one.
+
 ## [0.3.1] - 2026-11-27
 
 ### Fixed
