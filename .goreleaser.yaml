@@ -40,6 +40,7 @@ checksum:
 changelog:
   sort: asc
   use: github
+  format: "{{ .SHA }}: {{ .Message }} (@{{ .AuthorUsername }})"
   groups:
     - title: Features
       regexp: '^.*?feat(\(.+\))??!?:.+$'
