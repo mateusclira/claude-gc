@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-27
+
+### Fixed
+
+- `claude-gc version` now reports the module version and commit for
+  binaries built with `go install` or from a checkout, instead of `dev`.
+
 ## [0.1.0] - 2026-11-27
 
 First release.
@@ -28,5 +35,6 @@ First release.
   support, an install script, and a GoReleaser cask definition for a
   Homebrew tap.
 
-[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mateusclira/claude-gc/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mateusclira/claude-gc/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mateusclira/claude-gc/releases/tag/v0.1.0
